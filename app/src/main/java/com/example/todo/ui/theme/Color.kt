@@ -12,9 +12,15 @@ val PurpleLight = Color(0xFFD1C4E9)
 val PurpleGrey40 = Color(0xFF625b71)
 val Pink40 = Color(0xFF7D5260)
 
-val Background = Color(0xFFF3E5F5)
+val Background = Color(0xFFFBFBFE)
 val Surface = Color(0xFFFFFFFF)
 val OnSurface = Color(0xFF212121)
 val OnBackground = Color(0xFF212121)
-val Primary = Color(0xFF673AB7)
-val Secondary = Color(0xFF9575CD)
+val Primary = Color(0xFF6200EE)
+val Secondary = Color(0xFF7C4DFF)
+
+// Urgency Colors
+val PriorityLow = Color(0xFF4CAF50)    // Green
+val PriorityNormal = Color(0xFF2196F3) // Blue
+val PriorityHigh = Color(0xFFFF9800)   // Orange
+val PriorityUrgent = Color(0xFFF44336) // Red

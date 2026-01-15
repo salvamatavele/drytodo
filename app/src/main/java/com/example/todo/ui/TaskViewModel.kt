@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.todo.data.Task
 import com.example.todo.data.TaskRepository
 import com.example.todo.data.TodoDatabase
+import com.example.todo.util.NotificationUtils
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -23,26 +24,43 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     }
 
-    fun addTask(title: String, description: String, dueDate: Long, isRecurring: Boolean = false, recurrencePattern: String? = null) {
+    fun addTaskWithNotification(
+        context: android.content.Context,
+        title: String,
+        description: String,
+        dueDate: Long,
+        isRecurring: Boolean = false,
+        recurrencePattern: String? = null,
+        priority: String = "NORMAL",
+        category: String = "Pessoal"
+    ) {
         viewModelScope.launch {
             val task = Task(
                 title = title,
                 description = description,
                 dueDate = dueDate,
                 isRecurring = isRecurring,
-                recurrencePattern = recurrencePattern
+                recurrencePattern = recurrencePattern,
+                priority = priority,
+                category = category
             )
             repository.insert(task)
+            // Use title hash as unique notification ID for now
+            NotificationUtils.scheduleNotification(context, title.hashCode(), title, dueDate)
         }
     }
 
-    fun updateTask(task: Task) {
+    fun updateTask(task: Task, context: android.content.Context) {
         viewModelScope.launch {
             repository.update(task)
+            NotificationUtils.cancelNotification(context, task.id)
+            if (!task.isCompleted) {
+                NotificationUtils.scheduleNotification(context, task.id, task.title, task.dueDate)
+            }
         }
     }
 
-    fun completeTask(task: Task) {
+    fun completeTask(task: Task, context: android.content.Context) {
         viewModelScope.launch {
             if (task.isRecurring) {
                 val nextDueDate = calculateNextDueDate(task.dueDate, task.recurrencePattern)
@@ -51,15 +69,20 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                     lastCompletedDate = System.currentTimeMillis()
                 )
                 repository.update(updatedTask)
+                // Reschedule for next occurrence
+                NotificationUtils.cancelNotification(context, task.id)
+                NotificationUtils.scheduleNotification(context, task.id, task.title, nextDueDate)
             } else {
                 repository.update(task.copy(isCompleted = true))
+                NotificationUtils.cancelNotification(context, task.id)
             }
         }
     }
 
-    fun deleteTask(task: Task) {
+    fun deleteTask(task: Task, context: android.content.Context) {
         viewModelScope.launch {
             repository.delete(task)
+            NotificationUtils.cancelNotification(context, task.id)
         }
     }
 
