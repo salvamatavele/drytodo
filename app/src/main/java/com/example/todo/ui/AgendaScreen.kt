@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -16,12 +17,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.todo.data.Task
 import com.example.todo.ui.theme.*
 import com.example.todo.util.DateUtils
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -30,6 +34,7 @@ import java.util.*
 fun AgendaScreen(
     viewModel: TaskViewModel,
     onTaskClick: (Task) -> Unit,
+    onFocusTask: (Task) -> Unit,
     onTaskComplete: (Task) -> Unit,
     onBack: () -> Unit,
     onNavigateToTasks: () -> Unit,
@@ -37,16 +42,72 @@ fun AgendaScreen(
 ) {
     var selectedDate by remember { mutableStateOf(Calendar.getInstance()) }
     val tasks by viewModel.allTasks.collectAsState()
-    
-    val dateTasks = tasks.filter { DateUtils.isSameDay(it.dueDate, selectedDate.timeInMillis) }
+    val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
+    val context = LocalContext.current
+
+    // Group all tasks by day for the "Entire Agenda" view
+    val groupedTasks = remember(tasks) {
+        tasks.groupBy { task ->
+            Calendar.getInstance().apply {
+                timeInMillis = task.startDate
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+        }.toSortedMap()
+    }
+
+    val overdueTasksCount = tasks.count { it.endDate < System.currentTimeMillis() && !it.isCompleted }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Agenda", fontWeight = FontWeight.Bold) },
+                title = { 
+                    Column {
+                        Text("Agenda Inteligente", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text(
+                            SimpleDateFormat("MMMM yyyy", Locale("pt", "MZ")).format(selectedDate.time).replaceFirstChar { it.uppercase() },
+                            fontSize = 12.sp,
+                            color = Color.Gray
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
+                    }
+                },
+                actions = {
+                    if (overdueTasksCount > 0) {
+                        IconButton(onClick = { viewModel.rescheduleOverdueTasks(context) }) {
+                            Icon(Icons.Default.AutoFixHigh, contentDescription = "Otimizar Atrasadas", tint = PriorityUrgent)
+                        }
+                    }
+                    IconButton(onClick = { 
+                        selectedDate = Calendar.getInstance()
+                        val todayMillis = Calendar.getInstance().apply {
+                            set(Calendar.HOUR_OF_DAY, 0)
+                            set(Calendar.MINUTE, 0)
+                            set(Calendar.SECOND, 0)
+                            set(Calendar.MILLISECOND, 0)
+                        }.timeInMillis
+                        
+                        var index = 0
+                        var found = false
+                        for (date in groupedTasks.keys) {
+                            if (date >= todayMillis) {
+                                found = true
+                                break
+                            }
+                            index += 1 + (groupedTasks[date]?.size ?: 0)
+                        }
+                        if (found) {
+                            scope.launch { listState.animateScrollToItem(index) }
+                        }
+                    }) {
+                        Icon(Icons.Default.Today, contentDescription = "Hoje")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
@@ -77,34 +138,57 @@ fun AgendaScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            CalendarView(
+            CalendarMonthView(
                 selectedDate = selectedDate,
                 allTasks = tasks,
-                onDateSelected = { selectedDate = it }
+                onDateSelected = { date ->
+                    selectedDate = date
+                    val targetMillis = date.clone() as Calendar
+                    targetMillis.set(Calendar.HOUR_OF_DAY, 0)
+                    targetMillis.set(Calendar.MINUTE, 0)
+                    targetMillis.set(Calendar.SECOND, 0)
+                    targetMillis.set(Calendar.MILLISECOND, 0)
+                    
+                    var index = 0
+                    var found = false
+                    for (dMillis in groupedTasks.keys) {
+                        if (dMillis >= targetMillis.timeInMillis) {
+                            found = true
+                            break
+                        }
+                        index += 1 + (groupedTasks[dMillis]?.size ?: 0)
+                    }
+                    if (found) {
+                        scope.launch { listState.animateScrollToItem(index) }
+                    }
+                }
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            Text(
-                text = "Agenda para " + SimpleDateFormat("d 'de' MMMM", Locale("pt", "MZ")).format(selectedDate.time),
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.Black
-            )
-
-            if (dateTasks.isEmpty()) {
+            if (tasks.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Sem tarefas para este dia", color = Color.Gray)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.EventAvailable, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(64.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Sem tarefas agendadas", color = Color.Gray)
+                    }
                 }
             } else {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    contentPadding = PaddingValues(bottom = 20.dp)
                 ) {
-                    items(dateTasks) { task ->
-                        AgendaTaskItem(task, onTaskClick, onTaskComplete)
+                    groupedTasks.forEach { (dateMillis, tasksOnDay) ->
+                        item(key = "header_$dateMillis") {
+                            DateHeader(dateMillis)
+                        }
+                        items(tasksOnDay, key = { it.id }) { task ->
+                            Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
+                                AgendaTaskItem(task, onTaskClick, onFocusTask, onTaskComplete)
+                            }
+                        }
                     }
                 }
             }
@@ -113,109 +197,139 @@ fun AgendaScreen(
 }
 
 @Composable
-fun CalendarView(selectedDate: Calendar, allTasks: List<Task>, onDateSelected: (Calendar) -> Unit) {
-    val monthFormat = SimpleDateFormat("MMMM yyyy", Locale("pt", "MZ"))
-    
+fun CalendarMonthView(selectedDate: Calendar, allTasks: List<Task>, onDateSelected: (Calendar) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color.White)
-            .padding(16.dp)
+            .padding(bottom = 8.dp)
     ) {
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceAround) {
+            listOf("D", "S", "T", "Q", "Q", "S", "S").forEach { day ->
+                Text(day, fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold, modifier = Modifier.width(40.dp), textAlign = TextAlign.Center)
+            }
+        }
+
+        val calendar = selectedDate.clone() as Calendar
+        calendar.set(Calendar.DAY_OF_MONTH, 1)
+        val firstDayOfMonth = calendar.get(Calendar.DAY_OF_WEEK)
+        val daysInMonth = calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
+        
+        val offset = firstDayOfMonth - 1
+        val gridCalendar = calendar.clone() as Calendar
+        gridCalendar.add(Calendar.DAY_OF_MONTH, -offset)
+
+        val totalDaysToShow = if (offset + daysInMonth > 35) 42 else 35
+
+        for (row in 0 until (totalDaysToShow / 7)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
+                for (col in 0..6) {
+                    val currentDay = gridCalendar.clone() as Calendar
+                    val isSelected = DateUtils.isSameDay(currentDay.timeInMillis, selectedDate.timeInMillis)
+                    val isToday = DateUtils.isSameDay(currentDay.timeInMillis, System.currentTimeMillis())
+                    val isCurrentMonth = currentDay.get(Calendar.MONTH) == selectedDate.get(Calendar.MONTH)
+                    val dayNum = currentDay.get(Calendar.DAY_OF_MONTH)
+                    
+                    val dayTasks = allTasks.filter { DateUtils.isSameDay(it.startDate, currentDay.timeInMillis) }
+                    val hasTasksOnDay = dayTasks.isNotEmpty()
+                    
+                    val dotColor = when {
+                        dayTasks.any { it.priority == "URGENTE" && !it.isCompleted } -> PriorityUrgent
+                        dayTasks.any { it.priority == "ALTA" && !it.isCompleted } -> PriorityHigh
+                        dayTasks.all { it.isCompleted } && hasTasksOnDay -> Color.LightGray
+                        else -> PriorityNormal
+                    }
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.width(40.dp).padding(vertical = 1.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(if (isSelected) Primary else if (isToday) Primary.copy(alpha = 0.1f) else Color.Transparent)
+                                .clickable { onDateSelected(currentDay) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = dayNum.toString(),
+                                color = when {
+                                    isSelected -> Color.White
+                                    isToday -> Primary
+                                    isCurrentMonth -> Color.Black
+                                    else -> Color.LightGray
+                                },
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                        if (hasTasksOnDay) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(top = 1.dp)
+                                    .size(4.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isSelected) Color.White else dotColor)
+                            )
+                        } else {
+                            Spacer(modifier = Modifier.size(5.dp))
+                        }
+                    }
+                    gridCalendar.add(Calendar.DAY_OF_MONTH, 1)
+                }
+            }
+        }
+        
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = monthFormat.format(selectedDate.time).replaceFirstChar { it.uppercase() },
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp
-            )
-            Row {
-                IconButton(onClick = { 
-                    val newDate = selectedDate.clone() as Calendar
-                    newDate.add(Calendar.MONTH, -1)
-                    onDateSelected(newDate)
-                }) {
-                    Icon(Icons.Default.ChevronLeft, contentDescription = null)
-                }
-                IconButton(onClick = { 
-                    val newDate = selectedDate.clone() as Calendar
-                    newDate.add(Calendar.MONTH, 1)
-                    onDateSelected(newDate)
-                }) {
-                    Icon(Icons.Default.ChevronRight, contentDescription = null)
-                }
+            TextButton(onClick = {
+                val newDate = selectedDate.clone() as Calendar
+                newDate.add(Calendar.MONTH, -1)
+                onDateSelected(newDate)
+            }) {
+                Icon(Icons.Default.ChevronLeft, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text("Anterior", fontSize = 11.sp)
             }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
-            listOf("D", "S", "T", "Q", "Q", "S", "S").forEach { day ->
-                Text(day, fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
-            val weekCalendar = selectedDate.clone() as Calendar
-            weekCalendar.set(Calendar.DAY_OF_WEEK, weekCalendar.firstDayOfWeek)
-            
-            for (i in 0..6) {
-                val isSelected = DateUtils.isSameDay(weekCalendar.timeInMillis, selectedDate.timeInMillis)
-                val dayNum = weekCalendar.get(Calendar.DAY_OF_MONTH)
-                val currentWeekDay = weekCalendar.clone() as Calendar
-                
-                val dayTasks = allTasks.filter { DateUtils.isSameDay(it.dueDate, currentWeekDay.timeInMillis) }
-                val hasTasksOnDay = dayTasks.isNotEmpty()
-                
-                // Determine dot color based on highest priority task of the day
-                val dotColor = when {
-                    dayTasks.any { it.priority == "URGENTE" } -> PriorityUrgent
-                    dayTasks.any { it.priority == "ALTA" } -> PriorityHigh
-                    dayTasks.any { it.priority == "NORMAL" } -> PriorityNormal
-                    else -> PriorityLow
-                }
-
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.width(40.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(if (isSelected) Primary else Color.Transparent)
-                            .clickable { onDateSelected(currentWeekDay) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = dayNum.toString(),
-                            color = if (isSelected) Color.White else Color.Black,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
-                    if (hasTasksOnDay) {
-                        Box(
-                            modifier = Modifier
-                                .padding(top = 2.dp)
-                                .size(6.dp)
-                                .clip(CircleShape)
-                                .background(if (isSelected) Color.White else dotColor)
-                        )
-                    }
-                }
-                weekCalendar.add(Calendar.DAY_OF_YEAR, 1)
+            TextButton(onClick = {
+                val newDate = selectedDate.clone() as Calendar
+                newDate.add(Calendar.MONTH, 1)
+                onDateSelected(newDate)
+            }) {
+                Text("Próximo", fontSize = 11.sp)
+                Icon(Icons.Default.ChevronRight, contentDescription = null, modifier = Modifier.size(16.dp))
             }
         }
     }
 }
 
 @Composable
-fun AgendaTaskItem(task: Task, onClick: (Task) -> Unit, onComplete: (Task) -> Unit) {
+fun DateHeader(dateMillis: Long) {
+    val isToday = DateUtils.isSameDay(dateMillis, System.currentTimeMillis())
+    val sdf = SimpleDateFormat("EEEE, d 'de' MMMM", Locale("pt", "MZ"))
+    
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = if (isToday) "Hoje" else sdf.format(Date(dateMillis)).replaceFirstChar { it.uppercase() },
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (isToday) Primary else Color.Black
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Box(modifier = Modifier.weight(1f).height(1.dp).background(Color.LightGray.copy(alpha = 0.3f)))
+    }
+}
+
+@Composable
+fun AgendaTaskItem(task: Task, onClick: (Task) -> Unit, onFocus: (Task) -> Unit, onComplete: (Task) -> Unit) {
     val urgencyColor = when(task.priority) {
         "URGENTE" -> PriorityUrgent
         "ALTA" -> PriorityHigh
@@ -229,61 +343,67 @@ fun AgendaTaskItem(task: Task, onClick: (Task) -> Unit, onComplete: (Task) -> Un
             .clickable { onClick(task) },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp)
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(45.dp)) {
                 Text(
-                    SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(task.dueDate)),
-                    fontSize = 14.sp,
+                    SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(task.startDate)),
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.Black
                 )
                 Box(
                     modifier = Modifier
                         .width(2.dp)
-                        .height(20.dp)
-                        .background(urgencyColor.copy(alpha = 0.3f))
+                        .height(16.dp)
+                        .background(urgencyColor.copy(alpha = 0.2f))
+                )
+                Text(
+                    SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(task.endDate)),
+                    fontSize = 11.sp,
+                    color = Color.Gray
                 )
             }
             
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(12.dp))
             
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     task.title,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
+                    fontSize = 15.sp,
                     color = if (task.isCompleted) Color.Gray else Color.Black
                 )
-                Text(task.category, fontSize = 12.sp, color = Color.Gray)
+                Text(task.category, fontSize = 11.sp, color = Color.Gray)
             }
 
-            Box(
-                modifier = Modifier
-                    .size(24.dp)
-                    .clip(CircleShape)
-                    .background(if (task.isCompleted) urgencyColor else Color.Transparent)
-                    .then(if (!task.isCompleted) Modifier.background(urgencyColor.copy(alpha = 0.1f)) else Modifier)
-                    .clickable { onComplete(task) },
-                contentAlignment = Alignment.Center
+            IconButton(onClick = { onFocus(task) }, modifier = Modifier.size(28.dp)) {
+                Icon(Icons.Default.CenterFocusStrong, contentDescription = "Focar", tint = Color.Gray, modifier = Modifier.size(20.dp))
+            }
+
+            IconButton(
+                onClick = { onComplete(task) },
+                modifier = Modifier.size(28.dp)
             ) {
-                if (task.isCompleted) {
-                    Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                }
+                Icon(
+                    imageVector = if (task.isCompleted) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                    contentDescription = null,
+                    tint = if (task.isCompleted) urgencyColor else Color.LightGray,
+                    modifier = Modifier.size(20.dp)
+                )
             }
             
             Spacer(modifier = Modifier.width(8.dp))
             
-            // Side urgency bar
             Box(
                 modifier = Modifier
-                    .width(4.dp)
-                    .height(24.dp)
-                    .clip(RoundedCornerShape(2.dp))
+                    .width(3.dp)
+                    .height(30.dp)
+                    .clip(RoundedCornerShape(1.5.dp))
                     .background(urgencyColor)
             )
         }
