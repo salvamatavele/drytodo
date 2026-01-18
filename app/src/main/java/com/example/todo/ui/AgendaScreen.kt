@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -25,7 +24,6 @@ import androidx.compose.ui.unit.sp
 import com.example.todo.data.Task
 import com.example.todo.ui.theme.*
 import com.example.todo.util.DateUtils
-import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -42,24 +40,17 @@ fun AgendaScreen(
 ) {
     var selectedDate by remember { mutableStateOf(Calendar.getInstance()) }
     val tasks by viewModel.allTasks.collectAsState()
-    val scope = rememberCoroutineScope()
-    val listState = rememberLazyListState()
     val context = LocalContext.current
 
-    // Group all tasks by day for the "Entire Agenda" view
-    val groupedTasks = remember(tasks) {
-        tasks.groupBy { task ->
-            Calendar.getInstance().apply {
-                timeInMillis = task.startDate
-                set(Calendar.HOUR_OF_DAY, 0)
-                set(Calendar.MINUTE, 0)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-            }.timeInMillis
-        }.toSortedMap()
+    // Strictly filter tasks for the selected date only
+    val dateTasks = remember(tasks, selectedDate) {
+        tasks.filter { DateUtils.isSameDay(it.dueDate, selectedDate.timeInMillis) }
+            .sortedBy { it.dueDate }
     }
 
-    val overdueTasksCount = tasks.count { it.endDate < System.currentTimeMillis() && !it.isCompleted }
+    val overdueTasksCount = tasks.count { 
+        it.dueDate < DateUtils.startOfDay() && !it.isCompleted 
+    }
 
     Scaffold(
         topBar = {
@@ -85,28 +76,7 @@ fun AgendaScreen(
                             Icon(Icons.Default.AutoFixHigh, contentDescription = "Otimizar Atrasadas", tint = PriorityUrgent)
                         }
                     }
-                    IconButton(onClick = { 
-                        selectedDate = Calendar.getInstance()
-                        val todayMillis = Calendar.getInstance().apply {
-                            set(Calendar.HOUR_OF_DAY, 0)
-                            set(Calendar.MINUTE, 0)
-                            set(Calendar.SECOND, 0)
-                            set(Calendar.MILLISECOND, 0)
-                        }.timeInMillis
-                        
-                        var index = 0
-                        var found = false
-                        for (date in groupedTasks.keys) {
-                            if (date >= todayMillis) {
-                                found = true
-                                break
-                            }
-                            index += 1 + (groupedTasks[date]?.size ?: 0)
-                        }
-                        if (found) {
-                            scope.launch { listState.animateScrollToItem(index) }
-                        }
-                    }) {
+                    IconButton(onClick = { selectedDate = Calendar.getInstance() }) {
                         Icon(Icons.Default.Today, contentDescription = "Hoje")
                     }
                 },
@@ -141,54 +111,39 @@ fun AgendaScreen(
             CalendarMonthView(
                 selectedDate = selectedDate,
                 allTasks = tasks,
-                onDateSelected = { date ->
-                    selectedDate = date
-                    val targetMillis = date.clone() as Calendar
-                    targetMillis.set(Calendar.HOUR_OF_DAY, 0)
-                    targetMillis.set(Calendar.MINUTE, 0)
-                    targetMillis.set(Calendar.SECOND, 0)
-                    targetMillis.set(Calendar.MILLISECOND, 0)
-                    
-                    var index = 0
-                    var found = false
-                    for (dMillis in groupedTasks.keys) {
-                        if (dMillis >= targetMillis.timeInMillis) {
-                            found = true
-                            break
-                        }
-                        index += 1 + (groupedTasks[dMillis]?.size ?: 0)
-                    }
-                    if (found) {
-                        scope.launch { listState.animateScrollToItem(index) }
-                    }
-                }
+                onDateSelected = { date -> selectedDate = date }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            if (tasks.isEmpty()) {
+            // Section Header for the selected day
+            DateHeader(selectedDate.timeInMillis)
+
+            if (dateTasks.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.EventAvailable, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(64.dp))
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Sem tarefas agendadas", color = Color.Gray)
+                        Icon(
+                            imageVector = Icons.Default.EventAvailable,
+                            contentDescription = null,
+                            tint = Color.LightGray,
+                            modifier = Modifier.size(64.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "Sem tarefas para este dia",
+                            color = Color.Gray,
+                            fontSize = 16.sp
+                        )
                     }
                 }
             } else {
                 LazyColumn(
-                    state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 20.dp)
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    groupedTasks.forEach { (dateMillis, tasksOnDay) ->
-                        item(key = "header_$dateMillis") {
-                            DateHeader(dateMillis)
-                        }
-                        items(tasksOnDay, key = { it.id }) { task ->
-                            Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
-                                AgendaTaskItem(task, onTaskClick, onFocusTask, onTaskComplete)
-                            }
-                        }
+                    items(dateTasks, key = { it.id }) { task ->
+                        AgendaTaskItem(task, onTaskClick, onFocusTask, onTaskComplete)
                     }
                 }
             }
@@ -204,6 +159,7 @@ fun CalendarMonthView(selectedDate: Calendar, allTasks: List<Task>, onDateSelect
             .background(Color.White)
             .padding(bottom = 8.dp)
     ) {
+        // Days of week labels
         Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceAround) {
             listOf("D", "S", "T", "Q", "Q", "S", "S").forEach { day ->
                 Text(day, fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold, modifier = Modifier.width(40.dp), textAlign = TextAlign.Center)
@@ -230,7 +186,7 @@ fun CalendarMonthView(selectedDate: Calendar, allTasks: List<Task>, onDateSelect
                     val isCurrentMonth = currentDay.get(Calendar.MONTH) == selectedDate.get(Calendar.MONTH)
                     val dayNum = currentDay.get(Calendar.DAY_OF_MONTH)
                     
-                    val dayTasks = allTasks.filter { DateUtils.isSameDay(it.startDate, currentDay.timeInMillis) }
+                    val dayTasks = allTasks.filter { DateUtils.isSameDay(it.dueDate, currentDay.timeInMillis) }
                     val hasTasksOnDay = dayTasks.isNotEmpty()
                     
                     val dotColor = when {
@@ -351,7 +307,7 @@ fun AgendaTaskItem(task: Task, onClick: (Task) -> Unit, onFocus: (Task) -> Unit,
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(45.dp)) {
                 Text(
-                    SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(task.startDate)),
+                    text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(task.dueDate)),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.Black
@@ -362,18 +318,13 @@ fun AgendaTaskItem(task: Task, onClick: (Task) -> Unit, onFocus: (Task) -> Unit,
                         .height(16.dp)
                         .background(urgencyColor.copy(alpha = 0.2f))
                 )
-                Text(
-                    SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(task.endDate)),
-                    fontSize = 11.sp,
-                    color = Color.Gray
-                )
             }
             
             Spacer(modifier = Modifier.width(12.dp))
             
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    task.title,
+                    text = task.title,
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
                     color = if (task.isCompleted) Color.Gray else Color.Black

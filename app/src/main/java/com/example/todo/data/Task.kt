@@ -9,8 +9,7 @@ data class Task(
     val id: Int = 0,
     val title: String,
     val description: String,
-    val startDate: Long,
-    val endDate: Long,
+    val dueDate: Long,
     val isCompleted: Boolean = false,
     val isRecurring: Boolean = false,
     val recurrencePattern: String? = null, // e.g., "DAILY", "WEEKLY", "MENSAL"

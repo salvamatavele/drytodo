@@ -16,11 +16,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.todo.data.Task
+import com.example.todo.ui.theme.*
 import com.example.todo.util.DateUtils
 import java.text.SimpleDateFormat
 import java.util.*
@@ -38,33 +39,35 @@ fun TasksScreen(
     onNavigateToStats: () -> Unit
 ) {
     val tasks by viewModel.allTasks.collectAsState()
-    val context = LocalContext.current
     
-    val todayTasks = tasks.filter { DateUtils.isSameDay(it.startDate, System.currentTimeMillis()) }
-    val upcomingTasks = tasks.filter { it.startDate > DateUtils.endOfDay() }
-    val somedayTasks = tasks.filter { it.startDate < DateUtils.startOfDay() && !it.isCompleted }
+    val activeTasks = tasks.filter { !it.isCompleted }
+    val completedTasks = tasks.filter { it.isCompleted }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Tarefas Activas", fontWeight = FontWeight.Bold) },
+                title = { Text("As minhas tarefas", fontWeight = FontWeight.Medium) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { /* Sort options */ }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Mais")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
             )
         },
         bottomBar = {
-            // Internal Navigation for Tasks context
             Surface(shadowElevation = 8.dp, color = Color.White) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
                     horizontalArrangement = Arrangement.SpaceAround
                 ) {
                     IconButton(onClick = { /* Already here */ }) {
-                        Icon(Icons.Default.List, contentDescription = "Tarefas", tint = Color(0xFF6200EE))
+                        Icon(Icons.Default.List, contentDescription = "Tarefas", tint = Primary)
                     }
                     IconButton(onClick = onNavigateToAgenda) {
                         Icon(Icons.Default.CalendarMonth, contentDescription = "Agenda", tint = Color.Gray)
@@ -81,39 +84,112 @@ fun TasksScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
-            contentPadding = PaddingValues(bottom = 16.dp)
+            contentPadding = PaddingValues(bottom = 80.dp)
         ) {
-            if (todayTasks.isNotEmpty()) {
-                item { SectionHeader("Para Hoje", "${todayTasks.size} TAREFAS") }
-                items(todayTasks, key = { it.id }) { task ->
-                    SwipeToDeleteContainer(
-                        onDelete = { onDeleteTask(task) }
-                    ) {
-                        TaskListItem(task, onTaskClick, onFocusTask, onToggleTask)
+            if (activeTasks.isNotEmpty()) {
+                items(activeTasks, key = { it.id }) { task ->
+                    SwipeToDeleteContainer(onDelete = { onDeleteTask(task) }) {
+                        GoogleTaskItem(task, onTaskClick, onFocusTask, onToggleTask)
                     }
                 }
             }
-            if (upcomingTasks.isNotEmpty()) {
-                item { SectionHeader("Próximas", "") }
-                items(upcomingTasks, key = { it.id }) { task ->
-                    SwipeToDeleteContainer(
-                        onDelete = { onDeleteTask(task) }
-                    ) {
-                        TaskListItem(task, onTaskClick, onFocusTask, onToggleTask)
+
+            if (completedTasks.isNotEmpty()) {
+                item {
+                    Text(
+                        "Concluídas (${completedTasks.size})",
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Gray
+                    )
+                }
+                items(completedTasks, key = { it.id }) { task ->
+                    SwipeToDeleteContainer(onDelete = { onDeleteTask(task) }) {
+                        GoogleTaskItem(task, onTaskClick, onFocusTask, onToggleTask)
                     }
                 }
             }
-            if (somedayTasks.isNotEmpty()) {
-                item { SectionHeader("Algum dia", "") }
-                items(somedayTasks, key = { it.id }) { task ->
-                    SwipeToDeleteContainer(
-                        onDelete = { onDeleteTask(task) }
-                    ) {
-                        TaskListItem(task, onTaskClick, onFocusTask, onToggleTask)
+            
+            if (tasks.isEmpty()) {
+                item {
+                    Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("Não existem tarefas", color = Color.Gray)
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+fun GoogleTaskItem(
+    task: Task,
+    onClick: (Task) -> Unit,
+    onFocus: (Task) -> Unit,
+    onToggle: (Task) -> Unit
+) {
+    val urgencyColor = when(task.priority) {
+        "URGENTE" -> PriorityUrgent
+        "ALTA" -> PriorityHigh
+        "NORMAL" -> PriorityNormal
+        else -> PriorityLow
+    }
+
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onClick(task) }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = { onToggle(task) },
+                modifier = Modifier.size(24.dp)
+            ) {
+                Icon(
+                    imageVector = if (task.isCompleted) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                    contentDescription = null,
+                    tint = if (task.isCompleted) Primary else urgencyColor,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = task.title,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Normal,
+                    textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null,
+                    color = if (task.isCompleted) Color.Gray else Color.Black
+                )
+                
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (task.isRecurring) {
+                        Icon(Icons.Default.Repeat, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+                    val sdf = SimpleDateFormat("EEE, d MMM • HH:mm", Locale("pt", "MZ"))
+                    Text(
+                        text = sdf.format(Date(task.dueDate)),
+                        fontSize = 13.sp,
+                        color = if (task.isCompleted) Color.LightGray else Color.Gray
+                    )
+                    if (task.category.isNotEmpty()) {
+                        Text(" • ", fontSize = 13.sp, color = Color.Gray)
+                        Text(task.category, fontSize = 13.sp, color = Color.Gray)
+                    }
+                }
+            }
+
+            IconButton(onClick = { onFocus(task) }) {
+                Icon(Icons.Default.CenterFocusStrong, contentDescription = "Focar", tint = Color.LightGray, modifier = Modifier.size(20.dp))
+            }
+        }
+        HorizontalDivider(modifier = Modifier.padding(start = 56.dp), thickness = 0.5.dp, color = Color.LightGray.copy(alpha = 0.5f))
     }
 }
 
@@ -144,8 +220,6 @@ fun SwipeToDeleteContainer(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 20.dp, vertical = 8.dp)
-                    .clip(RoundedCornerShape(16.dp))
                     .background(color),
                 contentAlignment = Alignment.CenterEnd
             ) {
@@ -162,84 +236,4 @@ fun SwipeToDeleteContainer(
         enableDismissFromStartToEnd = false,
         content = { content() }
     )
-}
-
-@Composable
-private fun SectionHeader(title: String, badge: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(title, color = Color.Black, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        if (badge.isNotEmpty()) {
-            Surface(
-                color = Color(0xFF6200EE).copy(alpha = 0.1f),
-                shape = RoundedCornerShape(4.dp)
-            ) {
-                Text(
-                    badge,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                    color = Color(0xFF6200EE),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TaskListItem(task: Task, onClick: (Task) -> Unit, onFocus: (Task) -> Unit, onToggle: (Task) -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFFF5F5F5))
-            .clickable { onClick(task) }
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (task.isCompleted) {
-                Box(
-                    modifier = Modifier.width(4.dp).height(60.dp).background(Color(0xFF6200EE))
-                )
-            }
-            Column(modifier = Modifier.padding(16.dp).weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier.size(10.dp).clip(CircleShape).background(
-                            when (task.priority) {
-                                "URGENTE" -> Color.Red
-                                "ALTA" -> Color(0xFFFF9800)
-                                else -> Color(0xFF6200EE)
-                            }
-                        )
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        task.title,
-                        color = if (task.isCompleted) Color.Gray else Color.Black,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-                Text(task.category, fontSize = 12.sp, color = Color.Gray)
-            }
-            
-            IconButton(onClick = { onFocus(task) }) {
-                Icon(Icons.Default.CenterFocusStrong, contentDescription = "Foco", tint = Color.Gray)
-            }
-
-            IconButton(onClick = { onToggle(task) }) {
-                Icon(
-                    imageVector = if (task.isCompleted) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                    contentDescription = null,
-                    tint = if (task.isCompleted) Color(0xFF6200EE) else Color.LightGray
-                )
-            }
-        }
-    }
 }

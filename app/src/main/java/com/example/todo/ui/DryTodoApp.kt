@@ -19,9 +19,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.todo.R
 import com.example.todo.data.Task
 import com.example.todo.util.NotificationUtils
 import java.text.SimpleDateFormat
@@ -48,7 +50,6 @@ fun DryTodoApp(viewModel: TaskViewModel) {
             },
             onComplete = { task ->
                 viewModel.toggleTaskCompletion(task, context)
-                // Optionally stay in focus mode or exit
             }
         )
     } else {
@@ -115,8 +116,8 @@ fun DryTodoApp(viewModel: TaskViewModel) {
                             isFocusModeActive = true
                         },
                         onTaskComplete = { viewModel.toggleTaskCompletion(it, context) },
-                        onAddSuggestion = { title, desc, start, end, isRec, pattern ->
-                            viewModel.addTaskWithNotification(context, title, desc, start, end, isRec, pattern)
+                        onAddSuggestion = { title, desc, due, isRec, pattern ->
+                            viewModel.addTaskWithNotification(context, title, desc, due, isRec, pattern)
                         },
                         onSeeAllClick = { currentScreen = "TASKS" }
                     )
@@ -167,20 +168,19 @@ fun DryTodoApp(viewModel: TaskViewModel) {
                         isAddingTask = false
                         showTaskDialog = null
                     },
-                    onConfirm = { title, desc, start, end, isRec, pattern, priority, category ->
+                    onConfirm = { title, desc, due, isRec, pattern, priority, category ->
                         if (showTaskDialog != null) {
                             viewModel.updateTask(showTaskDialog!!.copy(
                                 title = title,
                                 description = desc,
-                                startDate = start,
-                                endDate = end,
+                                dueDate = due,
                                 isRecurring = isRec,
                                 recurrencePattern = pattern,
                                 priority = priority,
                                 category = category
                             ), context)
                         } else {
-                            viewModel.addTaskWithNotification(context, title, desc, start, end, isRec, pattern, priority, category)
+                            viewModel.addTaskWithNotification(context, title, desc, due, isRec, pattern, priority, category)
                         }
                         isAddingTask = false
                         showTaskDialog = null
@@ -227,33 +227,24 @@ fun BottomNavItem(label: String, icon: ImageVector, isSelected: Boolean, onClick
 fun TaskEditDialog(
     task: Task? = null,
     onDismiss: () -> Unit,
-    onConfirm: (String, String, Long, Long, Boolean, String?, String, String) -> Unit,
+    onConfirm: (String, String, Long, Boolean, String?, String, String) -> Unit,
     onStartFocus: (Task) -> Unit = {}
 ) {
     var title by remember { mutableStateOf(task?.title ?: "") }
     var desc by remember { mutableStateOf(task?.description ?: "") }
-    var startDate by remember { mutableStateOf(task?.startDate ?: System.currentTimeMillis()) }
-    var endDate by remember { mutableStateOf(task?.endDate ?: (System.currentTimeMillis() + 3600000)) } // Default 1h duration
+    var dueDate by remember { mutableStateOf(task?.dueDate ?: System.currentTimeMillis()) }
     var isRecurring by remember { mutableStateOf(task?.isRecurring ?: false) }
     var pattern by remember { mutableStateOf(task?.recurrencePattern ?: "DIÁRIO") }
     var priority by remember { mutableStateOf(task?.priority ?: "NORMAL") }
     var category by remember { mutableStateOf(task?.category ?: "Pessoal") }
 
-    var showStartDatePicker by remember { mutableStateOf(false) }
-    var showStartTimePicker by remember { mutableStateOf(false) }
-    var showEndDatePicker by remember { mutableStateOf(false) }
-    var showEndTimePicker by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
 
-    val startDatePickerState = rememberDatePickerState(initialSelectedDateMillis = startDate)
-    val startTimePickerState = rememberTimePickerState(
-        initialHour = Calendar.getInstance().apply { timeInMillis = startDate }.get(Calendar.HOUR_OF_DAY),
-        initialMinute = Calendar.getInstance().apply { timeInMillis = startDate }.get(Calendar.MINUTE)
-    )
-    
-    val endDatePickerState = rememberDatePickerState(initialSelectedDateMillis = endDate)
-    val endTimePickerState = rememberTimePickerState(
-        initialHour = Calendar.getInstance().apply { timeInMillis = endDate }.get(Calendar.HOUR_OF_DAY),
-        initialMinute = Calendar.getInstance().apply { timeInMillis = endDate }.get(Calendar.MINUTE)
+    val datePickerState = rememberDatePickerState(initialSelectedDateMillis = dueDate)
+    val timePickerState = rememberTimePickerState(
+        initialHour = Calendar.getInstance().apply { timeInMillis = dueDate }.get(Calendar.HOUR_OF_DAY),
+        initialMinute = Calendar.getInstance().apply { timeInMillis = dueDate }.get(Calendar.MINUTE)
     )
 
     AlertDialog(
@@ -287,52 +278,27 @@ fun TaskEditDialog(
                     minLines = 2
                 )
 
-                Text("Início", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text("Data e Hora", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedCard(
-                        onClick = { showStartDatePicker = true },
+                        onClick = { showDatePicker = true },
                         modifier = Modifier.weight(1f)
                     ) {
                         Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(20.dp))
-                            Text(SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date(startDate)), fontSize = 12.sp)
+                            Text(SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date(dueDate)), fontSize = 12.sp)
                         }
                     }
                     OutlinedCard(
-                        onClick = { showStartTimePicker = true },
+                        onClick = { showTimePicker = true },
                         modifier = Modifier.weight(1f)
                     ) {
                         Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(Icons.Default.AccessTime, contentDescription = null, modifier = Modifier.size(20.dp))
-                            Text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(startDate)), fontSize = 12.sp)
-                        }
-                    }
-                }
-
-                Text("Fim", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedCard(
-                        onClick = { showEndDatePicker = true },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(20.dp))
-                            Text(SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date(endDate)), fontSize = 12.sp)
-                        }
-                    }
-                    OutlinedCard(
-                        onClick = { showEndTimePicker = true },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.AccessTime, contentDescription = null, modifier = Modifier.size(20.dp))
-                            Text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(endDate)), fontSize = 12.sp)
+                            Text(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(dueDate)), fontSize = 12.sp)
                         }
                     }
                 }
@@ -382,17 +348,12 @@ fun TaskEditDialog(
         confirmButton = {
             Button(
                 onClick = { 
-                    val startCal = Calendar.getInstance()
-                    startCal.timeInMillis = startDatePickerState.selectedDateMillis ?: startDate
-                    startCal.set(Calendar.HOUR_OF_DAY, startTimePickerState.hour)
-                    startCal.set(Calendar.MINUTE, startTimePickerState.minute)
-                    
-                    val endCal = Calendar.getInstance()
-                    endCal.timeInMillis = endDatePickerState.selectedDateMillis ?: endDate
-                    endCal.set(Calendar.HOUR_OF_DAY, endTimePickerState.hour)
-                    endCal.set(Calendar.MINUTE, endTimePickerState.minute)
+                    val cal = Calendar.getInstance()
+                    cal.timeInMillis = datePickerState.selectedDateMillis ?: dueDate
+                    cal.set(Calendar.HOUR_OF_DAY, timePickerState.hour)
+                    cal.set(Calendar.MINUTE, timePickerState.minute)
 
-                    onConfirm(title, desc, startCal.timeInMillis, endCal.timeInMillis, isRecurring, if(isRecurring) pattern else null, priority, category) 
+                    onConfirm(title, desc, cal.timeInMillis, isRecurring, if(isRecurring) pattern else null, priority, category) 
                 },
                 enabled = title.isNotBlank()
             ) {
@@ -404,63 +365,33 @@ fun TaskEditDialog(
         }
     )
 
-    if (showStartDatePicker) {
+    if (showDatePicker) {
         DatePickerDialog(
-            onDismissRequest = { showStartDatePicker = false },
+            onDismissRequest = { showDatePicker = false },
             confirmButton = {
                 TextButton(onClick = { 
-                    startDate = startDatePickerState.selectedDateMillis ?: startDate
-                    showStartDatePicker = false 
+                    dueDate = datePickerState.selectedDateMillis ?: dueDate
+                    showDatePicker = false 
                 }) { Text("OK") }
             }
         ) {
-            DatePicker(state = startDatePickerState)
+            DatePicker(state = datePickerState)
         }
     }
 
-    if (showStartTimePicker) {
+    if (showTimePicker) {
         AlertDialog(
-            onDismissRequest = { showStartTimePicker = false },
+            onDismissRequest = { showTimePicker = false },
             confirmButton = {
                 TextButton(onClick = { 
-                    val cal = Calendar.getInstance().apply { timeInMillis = startDate }
-                    cal.set(Calendar.HOUR_OF_DAY, startTimePickerState.hour)
-                    cal.set(Calendar.MINUTE, startTimePickerState.minute)
-                    startDate = cal.timeInMillis
-                    showStartTimePicker = false 
+                    val cal = Calendar.getInstance().apply { timeInMillis = dueDate }
+                    cal.set(Calendar.HOUR_OF_DAY, timePickerState.hour)
+                    cal.set(Calendar.MINUTE, timePickerState.minute)
+                    dueDate = cal.timeInMillis
+                    showTimePicker = false 
                 }) { Text("OK") }
             },
-            text = { TimePicker(state = startTimePickerState) }
-        )
-    }
-
-    if (showEndDatePicker) {
-        DatePickerDialog(
-            onDismissRequest = { showEndDatePicker = false },
-            confirmButton = {
-                TextButton(onClick = { 
-                    endDate = endDatePickerState.selectedDateMillis ?: endDate
-                    showEndDatePicker = false 
-                }) { Text("OK") }
-            }
-        ) {
-            DatePicker(state = endDatePickerState)
-        }
-    }
-
-    if (showEndTimePicker) {
-        AlertDialog(
-            onDismissRequest = { showEndTimePicker = false },
-            confirmButton = {
-                TextButton(onClick = { 
-                    val cal = Calendar.getInstance().apply { timeInMillis = endDate }
-                    cal.set(Calendar.HOUR_OF_DAY, endTimePickerState.hour)
-                    cal.set(Calendar.MINUTE, endTimePickerState.minute)
-                    endDate = cal.timeInMillis
-                    showEndTimePicker = false 
-                }) { Text("OK") }
-            },
-            text = { TimePicker(state = endTimePickerState) }
+            text = { TimePicker(state = timePickerState) }
         )
     }
 }

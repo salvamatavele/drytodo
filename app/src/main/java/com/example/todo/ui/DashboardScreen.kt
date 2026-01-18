@@ -33,11 +33,11 @@ fun DashboardScreen(
     onTaskClick: (Task) -> Unit,
     onFocusTask: (Task) -> Unit,
     onTaskComplete: (Task) -> Unit,
-    onAddSuggestion: (String, String, Long, Long, Boolean, String?) -> Unit,
+    onAddSuggestion: (String, String, Long, Boolean, String?) -> Unit,
     onSeeAllClick: () -> Unit
 ) {
     val tasks by viewModel.allTasks.collectAsState()
-    val todayTasks = tasks.filter { DateUtils.isSameDay(it.startDate, System.currentTimeMillis()) }
+    val todayTasks = tasks.filter { DateUtils.isSameDay(it.dueDate, System.currentTimeMillis()) }
     val urgentTask = todayTasks.filter { !it.isCompleted }.find { it.priority == "URGENTE" } ?: todayTasks.filter { !it.isCompleted }.firstOrNull { it.priority == "ALTA" }
     
     val progress = if (todayTasks.isNotEmpty()) {
@@ -124,7 +124,7 @@ fun DashboardHeader(progress: Int) {
 }
 
 @Composable
-fun SmartSuggestionsCard(onAddSuggestion: (String, String, Long, Long, Boolean, String?) -> Unit) {
+fun SmartSuggestionsCard(onAddSuggestion: (String, String, Long, Boolean, String?) -> Unit) {
     var dismissed by remember { mutableStateOf(false) }
     if (dismissed) return
 
@@ -156,9 +156,7 @@ fun SmartSuggestionsCard(onAddSuggestion: (String, String, Long, Long, Boolean, 
                             val startCal = Calendar.getInstance()
                             startCal.set(Calendar.HOUR_OF_DAY, 10)
                             startCal.set(Calendar.MINUTE, 0)
-                            val endCal = startCal.clone() as Calendar
-                            endCal.add(Calendar.HOUR_OF_DAY, 1)
-                            onAddSuggestion("Revisão Semanal", "Sugestão inteligente", startCal.timeInMillis, endCal.timeInMillis, true, "SEMANAL")
+                            onAddSuggestion("Revisão Semanal", "Sugestão inteligente", startCal.timeInMillis, true, "SEMANAL")
                             dismissed = true
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Primary),
@@ -221,7 +219,7 @@ fun HighPrioritySection(urgentTask: Task?, onTaskClick: (Task) -> Unit, onFocusT
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(urgentTask.title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Text(
-                        "Início: ${SimpleDateFormat("HH:mm").format(Date(urgentTask.startDate))} - Fim: ${SimpleDateFormat("HH:mm").format(Date(urgentTask.endDate))}",
+                        "Hoje às ${SimpleDateFormat("HH:mm").format(Date(urgentTask.dueDate))}",
                         color = Color.White.copy(alpha = 0.8f),
                         fontSize = 14.sp
                     )
@@ -311,7 +309,7 @@ fun DashboardTaskItem(task: Task, onClick: () -> Unit, onFocus: () -> Unit, onCo
                     textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null,
                     color = if (task.isCompleted) Color.Gray else Color.Black
                 )
-                Text("${task.category} • ${SimpleDateFormat("HH:mm").format(Date(task.startDate))} - ${SimpleDateFormat("HH:mm").format(Date(task.endDate))}", color = Color.Gray, fontSize = 12.sp)
+                Text("${task.category} • ${SimpleDateFormat("HH:mm").format(Date(task.dueDate))}", color = Color.Gray, fontSize = 12.sp)
             }
 
             IconButton(onClick = onFocus) {

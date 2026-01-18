@@ -20,30 +20,27 @@ class MaintenanceWorker(
         val tasks = taskDao.getAllTasksList()
         val now = System.currentTimeMillis()
         
-        // Use endDate to determine if a task is overdue
-        val overdue = tasks.filter { it.endDate < now && !it.isCompleted }
+        // Use dueDate to determine if a task is overdue
+        val overdue = tasks.filter { it.dueDate < now && !it.isCompleted }
         
         overdue.forEach { task ->
-            val duration = task.endDate - task.startDate
-            val nextStartDate = calculateNextAutoStartDate(task)
-            val nextEndDate = nextStartDate + duration
-            
-            val updatedTask = task.copy(startDate = nextStartDate, endDate = nextEndDate)
+            val nextDueDate = calculateNextAutoDueDate(task)
+            val updatedTask = task.copy(dueDate = nextDueDate)
             taskDao.updateTask(updatedTask)
             
             NotificationUtils.cancelNotification(applicationContext, task.id)
-            NotificationUtils.scheduleNotification(applicationContext, task.id, task.title, nextStartDate)
+            NotificationUtils.scheduleNotification(applicationContext, task.id, task.title, nextDueDate)
         }
         
         return Result.success()
     }
 
-    private fun calculateNextAutoStartDate(task: Task): Long {
+    private fun calculateNextAutoDueDate(task: Task): Long {
         val calendar = Calendar.getInstance()
-        val originalStart = Calendar.getInstance().apply { timeInMillis = task.startDate }
+        val originalCal = Calendar.getInstance().apply { timeInMillis = task.dueDate }
         
-        calendar.set(Calendar.HOUR_OF_DAY, originalStart.get(Calendar.HOUR_OF_DAY))
-        calendar.set(Calendar.MINUTE, originalStart.get(Calendar.MINUTE))
+        calendar.set(Calendar.HOUR_OF_DAY, originalCal.get(Calendar.HOUR_OF_DAY))
+        calendar.set(Calendar.MINUTE, originalCal.get(Calendar.MINUTE))
         calendar.set(Calendar.SECOND, 0)
         
         when (task.recurrencePattern) {
