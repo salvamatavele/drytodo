@@ -22,7 +22,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.todo.data.Task
 import com.example.todo.ui.theme.*
-import com.example.todo.util.DateUtils
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -46,15 +45,15 @@ fun TasksScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("As minhas tarefas", fontWeight = FontWeight.Medium) },
+                title = { Text("As minhas tarefas", fontWeight = FontWeight.Medium, color = PurpleDark) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar", tint = PurpleDark)
                     }
                 },
                 actions = {
                     IconButton(onClick = { /* Sort options */ }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "Mais")
+                        Icon(Icons.Default.MoreVert, contentDescription = "Mais", tint = PurpleDark)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
@@ -164,7 +163,7 @@ fun GoogleTaskItem(
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Normal,
                     textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null,
-                    color = if (task.isCompleted) Color.Gray else Color.Black
+                    color = if (task.isCompleted) Color.Gray else PurpleDark
                 )
                 
                 Row(verticalAlignment = Alignment.CenterVertically) {

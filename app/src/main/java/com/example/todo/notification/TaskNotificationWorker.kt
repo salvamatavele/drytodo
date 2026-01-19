@@ -1,5 +1,6 @@
 package com.example.todo.notification
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -24,9 +25,9 @@ class TaskNotificationWorker(
         val isPreAlarm = inputData.getBoolean("IS_PRE_ALARM", false)
 
         val message = if (isPreAlarm) {
-            "Sua tarefa \"$taskTitle\" começa em 10 minutos!"
+            "🚨 Atenção: \"$taskTitle\" em 10 minutos!"
         } else {
-            "Hora de realizar: $taskTitle"
+            "⏰ HORA DA TAREFA: $taskTitle"
         }
 
         showNotification(taskTitle, message, taskId)
@@ -35,25 +36,31 @@ class TaskNotificationWorker(
 
     private fun showNotification(title: String, message: String, id: Int) {
         val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channelId = "task_channel"
+        val channelId = "task_alarm_channel"
+
+        // Create a long repeating vibration pattern (e.g., 1s on, 0.5s off, repeated 20 times ~ 30 seconds)
+        val longVibrationPattern = longArrayOf(
+            0, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000,
+            500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000, 500, 1000
+        )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val audioAttributes = AudioAttributes.Builder()
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .build()
+
             val channel = NotificationChannel(
                 channelId,
-                "Lembretes de Tarefas",
+                "Alarmes de Tarefas",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Lembretes e alertas de tarefas do DRYTODO"
+                description = "Alertas críticos de tarefas do DRYTODO"
                 enableLights(true)
                 enableVibration(true)
-                // Set default vibration pattern
-                vibrationPattern = longArrayOf(0, 500, 200, 500)
-
-                val audioAttributes = AudioAttributes.Builder()
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
-                    .build()
-                setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION), audioAttributes)
+                vibrationPattern = longVibrationPattern
+                setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), audioAttributes)
+                lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
             }
             notificationManager.createNotificationChannel(channel)
         }
@@ -70,19 +77,25 @@ class TaskNotificationWorker(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        val alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
 
-        val notification = NotificationCompat.Builder(applicationContext, channelId)
-            .setContentTitle("DRYTODO")
+        val notificationBuilder = NotificationCompat.Builder(applicationContext, channelId)
+            .setContentTitle("DRYTODO - ALERTA")
             .setContentText(message)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            .setSound(defaultSoundUri)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setSound(alarmSound)
+            .setVibrate(longVibrationPattern)
+            .setDefaults(NotificationCompat.DEFAULT_LIGHTS)
+            .setFullScreenIntent(pendingIntent, true)
             .setAutoCancel(true)
+            .setOngoing(true)
             .setContentIntent(pendingIntent)
-            .build()
+
+        val notification = notificationBuilder.build()
+        // FLAG_INSISTENT makes the sound and vibration repeat until acknowledged
+        notification.flags = notification.flags or Notification.FLAG_INSISTENT
 
         notificationManager.notify(id, notification)
     }

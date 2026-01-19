@@ -101,7 +101,7 @@ fun DashboardHeader(progress: Int) {
                 text = "Olá, Utilizador",
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.Black
+                color = PurpleDark
             )
         }
         
@@ -132,7 +132,7 @@ fun SmartSuggestionsCard(onAddSuggestion: (String, String, Long, Boolean, String
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Primary, modifier = Modifier.size(20.dp))
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Sugestões Inteligentes", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text("Sugestões Inteligentes", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = PurpleDark)
         }
         
         Card(
@@ -143,7 +143,7 @@ fun SmartSuggestionsCard(onAddSuggestion: (String, String, Long, Boolean, String
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text("HÁBITO RECORRENTE", color = Primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                Text("Revisão Semanal", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 4.dp))
+                Text("Revisão Semanal", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 4.dp), color = PurpleDark)
                 Text(
                     "Geralmente feito às Sextas às 10:00. Gostaria de adicionar?",
                     color = Color.Gray,
@@ -180,7 +180,7 @@ fun SmartSuggestionsCard(onAddSuggestion: (String, String, Long, Boolean, String
 @Composable
 fun HighPrioritySection(urgentTask: Task?, onTaskClick: (Task) -> Unit, onFocusTask: (Task) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Alta Prioridade", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        Text("Alta Prioridade", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = PurpleDark)
         
         if (urgentTask != null) {
             val urgencyColor = when(urgentTask.priority) {
@@ -244,7 +244,7 @@ fun SmallPriorityCard(title: String, time: String, icon: ImageVector, color: Col
         Column(modifier = Modifier.padding(16.dp)) {
             Icon(icon, contentDescription = null, tint = color)
             Spacer(modifier = Modifier.height(12.dp))
-            Text(title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(title, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = PurpleDark)
             Text(time, color = Color.Gray, fontSize = 12.sp)
         }
     }
@@ -257,7 +257,7 @@ fun TodayTasksHeader(onSeeAllClick: () -> Unit) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("Tarefas de Hoje", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        Text("Tarefas de Hoje", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = PurpleDark)
         Text(
             "Ver Tudo", 
             color = Primary, 
@@ -307,7 +307,7 @@ fun DashboardTaskItem(task: Task, onClick: () -> Unit, onFocus: () -> Unit, onCo
                     task.title,
                     fontWeight = FontWeight.Medium,
                     textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null,
-                    color = if (task.isCompleted) Color.Gray else Color.Black
+                    color = if (task.isCompleted) Color.Gray else PurpleDark
                 )
                 Text("${task.category} • ${SimpleDateFormat("HH:mm").format(Date(task.dueDate))}", color = Color.Gray, fontSize = 12.sp)
             }

@@ -146,6 +146,10 @@ fun DryTodoApp(viewModel: TaskViewModel) {
                         onNavigateToTasks = { currentScreen = "TASKS" },
                         onNavigateToStats = { currentScreen = "STATS" }
                     )
+                    "STATS" -> StatsScreen(
+                        viewModel = viewModel,
+                        onBack = { currentScreen = "HOME" }
+                    )
                     else -> {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {

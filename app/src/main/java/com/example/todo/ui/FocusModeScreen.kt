@@ -2,6 +2,7 @@ package com.example.todo.ui
 
 import android.content.Context
 import android.media.AudioManager
+import android.media.RingtoneManager
 import android.media.ToneGenerator
 import android.os.Build
 import android.os.VibrationEffect
@@ -51,6 +52,7 @@ fun FocusModeScreen(
     var totalTime by remember { mutableLongStateOf(25 * 60 * 1000L) }
     var showTaskPicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
+    var isFinished by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -67,9 +69,11 @@ fun FocusModeScreen(
                 delay(1000L)
                 timeRemaining -= 1000L
             }
-            isRunning = false
-            // Notify user
-            notifyFinished(context)
+            if (timeRemaining <= 0) {
+                isRunning = false
+                isFinished = true
+                startRingingAndVibrating(context)
+            }
         }
     }
 
@@ -82,7 +86,7 @@ fun FocusModeScreen(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(Color(0xFF1A237E), Color(0xFF3F51B5))
+                    colors = if (isFinished) listOf(Color(0xFFB71C1C), Color(0xFFD32F2F)) else listOf(Color(0xFF1A237E), Color(0xFF3F51B5))
                 )
             )
     ) {
@@ -95,15 +99,20 @@ fun FocusModeScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onBack) {
+            IconButton(onClick = {
+                stopRingingAndVibrating(context)
+                onBack()
+            }) {
                 Icon(Icons.Default.Close, contentDescription = "Sair", tint = Color.White)
             }
             
-            TextButton(onClick = { showTaskPicker = true }) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Mudar Tarefa", color = Color.White)
+            if (!isFinished) {
+                TextButton(onClick = { showTaskPicker = true }) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Mudar Tarefa", color = Color.White)
+                    }
                 }
             }
         }
@@ -119,14 +128,14 @@ fun FocusModeScreen(
             Surface(
                 color = Color.White.copy(alpha = 0.1f),
                 shape = RoundedCornerShape(16.dp),
-                onClick = { showTaskPicker = true }
+                onClick = { if (!isFinished) showTaskPicker = true }
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "A FOCAR EM",
+                        text = if (isFinished) "SESSÃO CONCLUÍDA" else "A FOCAR EM",
                         color = Color.White.copy(alpha = 0.6f),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
@@ -148,7 +157,7 @@ fun FocusModeScreen(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .size(280.dp)
-                    .clickable { if (!isRunning) showTimePicker = true }
+                    .clickable { if (!isRunning && !isFinished) showTimePicker = true }
             ) {
                 Canvas(modifier = Modifier.size(300.dp)) {
                     drawCircle(color = Color.White.copy(alpha = 0.05f), radius = size.minDimension / 2)
@@ -163,17 +172,22 @@ fun FocusModeScreen(
                 )
 
                 CircularProgressIndicator(
-                    progress = { progress },
+                    progress = { if (isFinished) 1f else progress },
                     modifier = Modifier.fillMaxSize(),
-                    color = Color.White,
+                    color = if (isFinished) PriorityUrgent else Color.White,
                     strokeWidth = 8.dp,
                     trackColor = Color.Transparent,
                     strokeCap = StrokeCap.Round
                 )
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(text = timeText, color = Color.White, fontSize = 64.sp, fontWeight = FontWeight.Light)
-                    if (!isRunning) {
+                    Text(
+                        text = if (isFinished) "00:00" else timeText,
+                        color = Color.White,
+                        fontSize = 64.sp,
+                        fontWeight = FontWeight.Light
+                    )
+                    if (!isRunning && !isFinished) {
                         Text("Tocar para ajustar", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp)
                     }
                 }
@@ -182,39 +196,54 @@ fun FocusModeScreen(
             Spacer(modifier = Modifier.height(64.dp))
 
             // Controls
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(24.dp)
-            ) {
-                IconButton(
+            if (!isFinished) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
+                    IconButton(
+                        onClick = {
+                            isRunning = false
+                            timeRemaining = totalTime
+                        },
+                        modifier = Modifier.size(56.dp).background(Color.White.copy(alpha = 0.1f), CircleShape)
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Reset", tint = Color.White)
+                    }
+
+                    LargeFloatingActionButton(
+                        onClick = { isRunning = !isRunning },
+                        containerColor = Color.White,
+                        contentColor = Color(0xFF1A237E),
+                        shape = CircleShape,
+                        modifier = Modifier.size(80.dp)
+                    ) {
+                        Icon(
+                            if (isRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { showTimePicker = true },
+                        modifier = Modifier.size(56.dp).background(Color.White.copy(alpha = 0.1f), CircleShape)
+                    ) {
+                        Icon(Icons.Default.Timer, contentDescription = "Ajustar", tint = Color.White)
+                    }
+                }
+            } else {
+                Button(
                     onClick = {
-                        isRunning = false
+                        stopRingingAndVibrating(context)
+                        isFinished = false
                         timeRemaining = totalTime
                     },
-                    modifier = Modifier.size(56.dp).background(Color.White.copy(alpha = 0.1f), CircleShape)
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier.width(200.dp).height(56.dp)
                 ) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Reset", tint = Color.White)
-                }
-
-                LargeFloatingActionButton(
-                    onClick = { isRunning = !isRunning },
-                    containerColor = Color.White,
-                    contentColor = Color(0xFF1A237E),
-                    shape = CircleShape,
-                    modifier = Modifier.size(80.dp)
-                ) {
-                    Icon(
-                        if (isRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(40.dp)
-                    )
-                }
-
-                IconButton(
-                    onClick = { showTimePicker = true },
-                    modifier = Modifier.size(56.dp).background(Color.White.copy(alpha = 0.1f), CircleShape)
-                ) {
-                    Icon(Icons.Default.Timer, contentDescription = "Ajustar", tint = Color.White)
+                    Text("Reiniciar Timer", color = Color.Black, fontWeight = FontWeight.Bold)
                 }
             }
 
@@ -222,8 +251,14 @@ fun FocusModeScreen(
 
             if (currentTask != null) {
                 Button(
-                    onClick = { onComplete(currentTask!!) },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.2f), contentColor = Color.White),
+                    onClick = {
+                        stopRingingAndVibrating(context)
+                        onComplete(currentTask!!)
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isFinished) PriorityUrgent else Color.White.copy(alpha = 0.2f),
+                        contentColor = Color.White
+                    ),
                     shape = RoundedCornerShape(24.dp),
                     modifier = Modifier.fillMaxWidth().height(56.dp)
                 ) {
@@ -306,14 +341,23 @@ fun FocusModeScreen(
     }
 }
 
-private fun notifyFinished(context: Context) {
-    // Beep
-    try {
-        val toneGen = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 100)
-        toneGen.startTone(ToneGenerator.TONE_PROP_BEEP, 500)
-    } catch (e: Exception) { e.printStackTrace() }
+private var mediaPlayer: android.media.MediaPlayer? = null
 
-    // Long Vibrate
+private fun startRingingAndVibrating(context: Context) {
+    // Ringing
+    try {
+        val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+        mediaPlayer = android.media.MediaPlayer.create(context, alarmUri).apply {
+            isLooping = true
+            start()
+        }
+    } catch (e: Exception) {
+        // Fallback to beep if alarm uri fails
+        val toneGen = ToneGenerator(AudioManager.STREAM_ALARM, 100)
+        toneGen.startTone(ToneGenerator.TONE_CDMA_HIGH_L, 2000)
+    }
+
+    // Persistent Vibration
     val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
         vibratorManager.defaultVibrator
@@ -324,10 +368,28 @@ private fun notifyFinished(context: Context) {
 
     if (vibrator.hasVibrator()) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createOneShot(1500, VibrationEffect.DEFAULT_AMPLITUDE))
+            // Repeat pattern: 0ms delay, 1000ms vibrate, 500ms sleep
+            vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 1000, 500), 0))
         } else {
             @Suppress("DEPRECATION")
-            vibrator.vibrate(1500)
+            vibrator.vibrate(longArrayOf(0, 1000, 500), 0)
         }
     }
+}
+
+private fun stopRingingAndVibrating(context: Context) {
+    // Stop ringing
+    mediaPlayer?.stop()
+    mediaPlayer?.release()
+    mediaPlayer = null
+
+    // Stop vibration
+    val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+        vibratorManager.defaultVibrator
+    } else {
+        @Suppress("DEPRECATION")
+        context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+    }
+    vibrator.cancel()
 }

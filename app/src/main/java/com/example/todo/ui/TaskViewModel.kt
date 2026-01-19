@@ -30,9 +30,16 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             allTasks.collect { tasks ->
                 val now = System.currentTimeMillis()
-                val overdue = tasks.filter { it.dueDate < now && !it.isCompleted }
-                if (overdue.isNotEmpty()) {
-                    overdue.forEach { task ->
+                val eightHoursInMs = 8 * 60 * 60 * 1000L
+                
+                // Intelligent Auto-Reschedule:
+                // Only move recurring tasks if they are overdue by more than 8 hours
+                val overdueRecurring = tasks.filter { 
+                    it.isRecurring && !it.isCompleted && (now > it.dueDate + eightHoursInMs) 
+                }
+                
+                if (overdueRecurring.isNotEmpty()) {
+                    overdueRecurring.forEach { task ->
                         val nextDueDate = calculateNextAutoDueDate(task)
                         val updatedTask = task.copy(dueDate = nextDueDate)
                         repository.update(updatedTask)
@@ -52,13 +59,15 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         calendar.set(Calendar.HOUR_OF_DAY, originalCal.get(Calendar.HOUR_OF_DAY))
         calendar.set(Calendar.MINUTE, originalCal.get(Calendar.MINUTE))
         calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
         
         when (task.recurrencePattern) {
             "SEMANAL" -> calendar.add(Calendar.WEEK_OF_YEAR, 1)
             "MENSAL" -> calendar.add(Calendar.MONTH, 1)
-            else -> calendar.add(Calendar.DAY_OF_YEAR, 1)
+            else -> calendar.add(Calendar.DAY_OF_YEAR, 1) // Default or DIÁRIO
         }
         
+        // If the calculated next date is still in the past, keep jumping forward
         while (calendar.timeInMillis < System.currentTimeMillis()) {
             when (task.recurrencePattern) {
                 "SEMANAL" -> calendar.add(Calendar.WEEK_OF_YEAR, 1)
