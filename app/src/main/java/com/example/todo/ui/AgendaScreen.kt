@@ -19,9 +19,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.todo.data.Task
+import com.example.todo.data.TaskLog
 import com.example.todo.ui.theme.*
 import com.example.todo.util.DateUtils
 import java.text.SimpleDateFormat
@@ -40,12 +42,35 @@ fun AgendaScreen(
 ) {
     var selectedDate by remember { mutableStateOf(Calendar.getInstance()) }
     val tasks by viewModel.allTasks.collectAsState()
+    val logs by viewModel.allLogs.collectAsState()
     val context = LocalContext.current
 
-    // Strictly filter tasks for the selected date only
-    val dateTasks = remember(tasks, selectedDate) {
-        tasks.filter { DateUtils.isSameDay(it.dueDate, selectedDate.timeInMillis) }
-            .sortedBy { it.dueDate }
+    // Combined view: History Logs + Active/Future Tasks
+    val dateItems = remember(tasks, logs, selectedDate) {
+        val isPast = selectedDate.timeInMillis < DateUtils.startOfDay()
+        
+        val logsOnDate = logs.filter { DateUtils.isSameDay(it.date, selectedDate.timeInMillis) }
+        
+        val activeOnDate = if (!isPast) {
+            tasks.filter { task ->
+                if (!task.isRecurring) {
+                    DateUtils.isSameDay(task.dueDate, selectedDate.timeInMillis)
+                } else {
+                    isTaskActiveOnDate(task, selectedDate)
+                }
+            }
+        } else emptyList()
+
+        val logTaskIds = logsOnDate.map { it.taskId }.toSet()
+        val uniqueActive = activeOnDate.filter { it.id !in logTaskIds }
+        
+        (logsOnDate.map { AgendaItem.Log(it) } + uniqueActive.map { AgendaItem.Active(it) })
+            .sortedBy { 
+                when (it) {
+                    is AgendaItem.Active -> it.task.dueDate
+                    is AgendaItem.Log -> it.log.date
+                }
+            }
     }
 
     val overdueTasksCount = tasks.count { 
@@ -57,7 +82,7 @@ fun AgendaScreen(
             TopAppBar(
                 title = { 
                     Column {
-                        Text("Agenda Inteligente", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text("Agenda Inteligente", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = PurpleDark)
                         Text(
                             SimpleDateFormat("MMMM yyyy", Locale("pt", "MZ")).format(selectedDate.time).replaceFirstChar { it.uppercase() },
                             fontSize = 12.sp,
@@ -67,7 +92,7 @@ fun AgendaScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar", tint = PurpleDark)
                     }
                 },
                 actions = {
@@ -77,7 +102,7 @@ fun AgendaScreen(
                         }
                     }
                     IconButton(onClick = { selectedDate = Calendar.getInstance() }) {
-                        Icon(Icons.Default.Today, contentDescription = "Hoje")
+                        Icon(Icons.Default.Today, contentDescription = "Hoje", tint = PurpleDark)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
@@ -111,15 +136,15 @@ fun AgendaScreen(
             CalendarMonthView(
                 selectedDate = selectedDate,
                 allTasks = tasks,
+                allLogs = logs,
                 onDateSelected = { date -> selectedDate = date }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Section Header for the selected day
             DateHeader(selectedDate.timeInMillis)
 
-            if (dateTasks.isEmpty()) {
+            if (dateItems.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
@@ -130,7 +155,7 @@ fun AgendaScreen(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "Sem tarefas para este dia",
+                            text = "Sem actividades para este dia",
                             color = Color.Gray,
                             fontSize = 16.sp
                         )
@@ -142,8 +167,24 @@ fun AgendaScreen(
                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(dateTasks, key = { it.id }) { task ->
-                        AgendaTaskItem(task, onTaskClick, onFocusTask, onTaskComplete)
+                    items(dateItems) { item ->
+                        when (item) {
+                            is AgendaItem.Active -> {
+                                Box(modifier = Modifier.padding(vertical = 4.dp)) {
+                                    InteractiveAgendaItem(
+                                        task = item.task,
+                                        onClick = { onTaskClick(item.task) },
+                                        onFocus = { onFocusTask(item.task) },
+                                        onPercentageChange = { viewModel.updateTaskPercentage(item.task, it, context) }
+                                    )
+                                }
+                            }
+                            is AgendaItem.Log -> {
+                                Box(modifier = Modifier.padding(vertical = 4.dp)) {
+                                    HistoryLogItem(item.log)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -151,114 +192,20 @@ fun AgendaScreen(
     }
 }
 
-@Composable
-fun CalendarMonthView(selectedDate: Calendar, allTasks: List<Task>, onDateSelected: (Calendar) -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Color.White)
-            .padding(bottom = 8.dp)
-    ) {
-        // Days of week labels
-        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceAround) {
-            listOf("D", "S", "T", "Q", "Q", "S", "S").forEach { day ->
-                Text(day, fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold, modifier = Modifier.width(40.dp), textAlign = TextAlign.Center)
-            }
-        }
+sealed class AgendaItem {
+    data class Active(val task: Task) : AgendaItem()
+    data class Log(val log: TaskLog) : AgendaItem()
+}
 
-        val calendar = selectedDate.clone() as Calendar
-        calendar.set(Calendar.DAY_OF_MONTH, 1)
-        val firstDayOfMonth = calendar.get(Calendar.DAY_OF_WEEK)
-        val daysInMonth = calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
-        
-        val offset = firstDayOfMonth - 1
-        val gridCalendar = calendar.clone() as Calendar
-        gridCalendar.add(Calendar.DAY_OF_MONTH, -offset)
-
-        val totalDaysToShow = if (offset + daysInMonth > 35) 42 else 35
-
-        for (row in 0 until (totalDaysToShow / 7)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
-                for (col in 0..6) {
-                    val currentDay = gridCalendar.clone() as Calendar
-                    val isSelected = DateUtils.isSameDay(currentDay.timeInMillis, selectedDate.timeInMillis)
-                    val isToday = DateUtils.isSameDay(currentDay.timeInMillis, System.currentTimeMillis())
-                    val isCurrentMonth = currentDay.get(Calendar.MONTH) == selectedDate.get(Calendar.MONTH)
-                    val dayNum = currentDay.get(Calendar.DAY_OF_MONTH)
-                    
-                    val dayTasks = allTasks.filter { DateUtils.isSameDay(it.dueDate, currentDay.timeInMillis) }
-                    val hasTasksOnDay = dayTasks.isNotEmpty()
-                    
-                    val dotColor = when {
-                        dayTasks.any { it.priority == "URGENTE" && !it.isCompleted } -> PriorityUrgent
-                        dayTasks.any { it.priority == "ALTA" && !it.isCompleted } -> PriorityHigh
-                        dayTasks.all { it.isCompleted } && hasTasksOnDay -> Color.LightGray
-                        else -> PriorityNormal
-                    }
-
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.width(40.dp).padding(vertical = 1.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(if (isSelected) Primary else if (isToday) Primary.copy(alpha = 0.1f) else Color.Transparent)
-                                .clickable { onDateSelected(currentDay) },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = dayNum.toString(),
-                                color = when {
-                                    isSelected -> Color.White
-                                    isToday -> Primary
-                                    isCurrentMonth -> Color.Black
-                                    else -> Color.LightGray
-                                },
-                                fontSize = 12.sp,
-                                fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                        if (hasTasksOnDay) {
-                            Box(
-                                modifier = Modifier
-                                    .padding(top = 1.dp)
-                                    .size(4.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isSelected) Color.White else dotColor)
-                            )
-                        } else {
-                            Spacer(modifier = Modifier.size(5.dp))
-                        }
-                    }
-                    gridCalendar.add(Calendar.DAY_OF_MONTH, 1)
-                }
-            }
-        }
-        
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TextButton(onClick = {
-                val newDate = selectedDate.clone() as Calendar
-                newDate.add(Calendar.MONTH, -1)
-                onDateSelected(newDate)
-            }) {
-                Icon(Icons.Default.ChevronLeft, contentDescription = null, modifier = Modifier.size(16.dp))
-                Text("Anterior", fontSize = 11.sp)
-            }
-            TextButton(onClick = {
-                val newDate = selectedDate.clone() as Calendar
-                newDate.add(Calendar.MONTH, 1)
-                onDateSelected(newDate)
-            }) {
-                Text("Próximo", fontSize = 11.sp)
-                Icon(Icons.Default.ChevronRight, contentDescription = null, modifier = Modifier.size(16.dp))
-            }
-        }
+private fun isTaskActiveOnDate(task: Task, date: Calendar): Boolean {
+    val taskCal = Calendar.getInstance().apply { timeInMillis = task.dueDate }
+    if (date.before(taskCal) && !DateUtils.isSameDay(date.timeInMillis, taskCal.timeInMillis)) return false
+    
+    return when (task.recurrencePattern) {
+        "DIÁRIO" -> true
+        "SEMANAL" -> date.get(Calendar.DAY_OF_WEEK) == taskCal.get(Calendar.DAY_OF_WEEK)
+        "MENSAL" -> date.get(Calendar.DAY_OF_MONTH) == taskCal.get(Calendar.DAY_OF_MONTH)
+        else -> DateUtils.isSameDay(task.dueDate, date.timeInMillis)
     }
 }
 
@@ -277,7 +224,7 @@ fun DateHeader(dateMillis: Long) {
             text = if (isToday) "Hoje" else sdf.format(Date(dateMillis)).replaceFirstChar { it.uppercase() },
             fontSize = 15.sp,
             fontWeight = FontWeight.Bold,
-            color = if (isToday) Primary else Color.Black
+            color = if (isToday) Primary else PurpleDark
         )
         Spacer(modifier = Modifier.width(8.dp))
         Box(modifier = Modifier.weight(1f).height(1.dp).background(Color.LightGray.copy(alpha = 0.3f)))
@@ -285,7 +232,71 @@ fun DateHeader(dateMillis: Long) {
 }
 
 @Composable
-fun AgendaTaskItem(task: Task, onClick: (Task) -> Unit, onFocus: (Task) -> Unit, onComplete: (Task) -> Unit) {
+fun HistoryLogItem(log: TaskLog) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.6f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(45.dp)) {
+                Text(
+                    text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(log.date)),
+                    fontSize = 13.sp,
+                    color = Color.Gray
+                )
+                Icon(
+                    imageVector = if (log.wasCompleted) Icons.Default.CheckCircle else Icons.Default.History,
+                    contentDescription = null,
+                    tint = if (log.wasCompleted) PriorityLow else Color.LightGray,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            
+            Spacer(modifier = Modifier.width(12.dp))
+            
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = log.taskTitle,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 15.sp,
+                    color = Color.Gray,
+                    textDecoration = if (log.wasCompleted) TextDecoration.LineThrough else null
+                )
+                Text(
+                    text = if (log.wasCompleted) "Concluída (100%)" else "Progresso: ${log.completionPercentage}%",
+                    fontSize = 11.sp,
+                    color = if (log.wasCompleted) PriorityLow else Color.Gray
+                )
+            }
+            
+            Surface(
+                color = (if (log.wasCompleted) PriorityLow else PriorityUrgent).copy(alpha = 0.1f),
+                shape = RoundedCornerShape(4.dp)
+            ) {
+                Text(
+                    text = if (log.wasCompleted) "OK" else "EXPIROU",
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (log.wasCompleted) PriorityLow else PriorityUrgent
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun InteractiveAgendaItem(
+    task: Task,
+    onClick: () -> Unit,
+    onFocus: () -> Unit,
+    onPercentageChange: (Int) -> Unit
+) {
     val urgencyColor = when(task.priority) {
         "URGENTE" -> PriorityUrgent
         "ALTA" -> PriorityHigh
@@ -296,7 +307,7 @@ fun AgendaTaskItem(task: Task, onClick: (Task) -> Unit, onFocus: (Task) -> Unit,
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick(task) },
+            .clickable { onClick() },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp)
@@ -327,26 +338,27 @@ fun AgendaTaskItem(task: Task, onClick: (Task) -> Unit, onFocus: (Task) -> Unit,
                     text = task.title,
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
-                    color = if (task.isCompleted) Color.Gray else Color.Black
+                    color = if (task.isCompleted) Color.Gray else PurpleDark,
+                    textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null
                 )
-                Text(task.category, fontSize = 11.sp, color = Color.Gray)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(task.category, fontSize = 11.sp, color = Color.Gray)
+                    if (task.completionPercentage > 0 && !task.isCompleted) {
+                        Text(" • ${task.completionPercentage}%", fontSize = 11.sp, color = Primary, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
 
-            IconButton(onClick = { onFocus(task) }, modifier = Modifier.size(28.dp)) {
+            IconButton(onClick = onFocus, modifier = Modifier.size(28.dp)) {
                 Icon(Icons.Default.CenterFocusStrong, contentDescription = "Focar", tint = Color.Gray, modifier = Modifier.size(20.dp))
             }
 
-            IconButton(
-                onClick = { onComplete(task) },
-                modifier = Modifier.size(28.dp)
-            ) {
-                Icon(
-                    imageVector = if (task.isCompleted) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                    contentDescription = null,
-                    tint = if (task.isCompleted) urgencyColor else Color.LightGray,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
+            // Reference to the shared component defined in TasksScreen.kt
+            InteractiveCompletionButton(
+                percentage = task.completionPercentage,
+                onPercentageChange = onPercentageChange,
+                color = if (task.isCompleted) Primary else urgencyColor
+            )
             
             Spacer(modifier = Modifier.width(8.dp))
             
@@ -357,6 +369,123 @@ fun AgendaTaskItem(task: Task, onClick: (Task) -> Unit, onFocus: (Task) -> Unit,
                     .clip(RoundedCornerShape(1.5.dp))
                     .background(urgencyColor)
             )
+        }
+    }
+}
+
+@Composable
+fun CalendarMonthView(selectedDate: Calendar, allTasks: List<Task>, allLogs: List<TaskLog>, onDateSelected: (Calendar) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White)
+            .padding(bottom = 8.dp)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceAround) {
+            listOf("D", "S", "T", "Q", "Q", "S", "S").forEach { day ->
+                Text(day, fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold, modifier = Modifier.width(40.dp), textAlign = TextAlign.Center)
+            }
+        }
+
+        val calendar = selectedDate.clone() as Calendar
+        calendar.set(Calendar.DAY_OF_MONTH, 1)
+        val firstDayOfMonth = calendar.get(Calendar.DAY_OF_WEEK)
+        val daysInMonth = calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
+        
+        val offset = firstDayOfMonth - 1
+        val gridCalendar = calendar.clone() as Calendar
+        gridCalendar.add(Calendar.DAY_OF_MONTH, -offset)
+
+        val totalDaysToShow = if (offset + daysInMonth > 35) 42 else 35
+
+        for (row in 0 until (totalDaysToShow / 7)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
+                for (col in 0..6) {
+                    val currentDay = gridCalendar.clone() as Calendar
+                    val isSelected = DateUtils.isSameDay(currentDay.timeInMillis, selectedDate.timeInMillis)
+                    val isToday = DateUtils.isSameDay(currentDay.timeInMillis, System.currentTimeMillis())
+                    val isCurrentMonth = currentDay.get(Calendar.MONTH) == selectedDate.get(Calendar.MONTH)
+                    val dayNum = currentDay.get(Calendar.DAY_OF_MONTH)
+                    
+                    val hasActivitiesOnDay = allTasks.any { task ->
+                        if (!task.isRecurring) DateUtils.isSameDay(task.dueDate, currentDay.timeInMillis)
+                        else isTaskActiveOnDate(task, currentDay)
+                    } || allLogs.any { DateUtils.isSameDay(it.date, currentDay.timeInMillis) }
+                    
+                    val dayTasks = allTasks.filter { task ->
+                        if (!task.isRecurring) DateUtils.isSameDay(task.dueDate, currentDay.timeInMillis)
+                        else isTaskActiveOnDate(task, currentDay)
+                    }
+
+                    val dotColor = when {
+                        dayTasks.any { it.priority == "URGENTE" && !it.isCompleted } -> PriorityUrgent
+                        dayTasks.any { it.priority == "ALTA" && !it.isCompleted } -> PriorityHigh
+                        dayTasks.all { it.isCompleted } && hasActivitiesOnDay -> Color.LightGray
+                        else -> PriorityNormal
+                    }
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.width(40.dp).padding(vertical = 1.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(if (isSelected) Primary else if (isToday) Primary.copy(alpha = 0.1f) else Color.Transparent)
+                                .clickable { onDateSelected(currentDay) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = dayNum.toString(),
+                                color = when {
+                                    isSelected -> Color.White
+                                    isToday -> Primary
+                                    isCurrentMonth -> Color.Black
+                                    else -> Color.LightGray
+                                },
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                        if (hasActivitiesOnDay) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(top = 1.dp)
+                                    .size(4.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isSelected) Color.White else dotColor)
+                            )
+                        } else {
+                            Spacer(modifier = Modifier.size(5.dp))
+                        }
+                    }
+                    gridCalendar.add(Calendar.DAY_OF_MONTH, 1)
+                }
+            }
+        }
+        
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextButton(onClick = {
+                val newDate = selectedDate.clone() as Calendar
+                newDate.add(Calendar.MONTH, -1)
+                onDateSelected(newDate)
+            }) {
+                Icon(Icons.Default.ChevronLeft, contentDescription = null, modifier = Modifier.size(16.dp))
+                Text("Anterior", fontSize = 11.sp, color = PurpleDark)
+            }
+            TextButton(onClick = {
+                val newDate = selectedDate.clone() as Calendar
+                newDate.add(Calendar.MONTH, 1)
+                onDateSelected(newDate)
+            }) {
+                Text("Próximo", fontSize = 11.sp, color = PurpleDark)
+                Icon(Icons.Default.ChevronRight, contentDescription = null, modifier = Modifier.size(16.dp))
+            }
         }
     }
 }

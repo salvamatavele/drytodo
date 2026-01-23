@@ -22,4 +22,11 @@ interface TaskDao {
 
     @Delete
     suspend fun deleteTask(task: Task)
+
+    // Task Logs
+    @Insert
+    suspend fun insertLog(log: TaskLog)
+
+    @Query("SELECT * FROM task_logs ORDER BY date DESC")
+    fun getAllLogs(): Flow<List<TaskLog>>
 }

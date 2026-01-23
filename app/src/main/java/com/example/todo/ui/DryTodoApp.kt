@@ -48,14 +48,14 @@ fun DryTodoApp(viewModel: TaskViewModel) {
                 isFocusModeActive = false
                 focusTask = null
             },
-            onComplete = { task ->
-                viewModel.toggleTaskCompletion(task, context)
+            onComplete = { task, percentage ->
+                viewModel.updateTaskPercentage(task, percentage, context)
             }
         )
     } else {
         Scaffold(
             bottomBar = {
-                if (currentScreen != "TASKS" && currentScreen != "AGENDA" && currentScreen != "STATS") {
+                if (currentScreen != "TASKS" && currentScreen != "AGENDA" && currentScreen != "STATS" && currentScreen != "HELP") {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -106,7 +106,7 @@ fun DryTodoApp(viewModel: TaskViewModel) {
                 }
             }
         ) { innerPadding ->
-            Box(modifier = Modifier.padding(if (currentScreen == "TASKS" || currentScreen == "AGENDA" || currentScreen == "STATS") PaddingValues(0.dp) else innerPadding)) {
+            Box(modifier = Modifier.padding(if (currentScreen == "TASKS" || currentScreen == "AGENDA" || currentScreen == "STATS" || currentScreen == "HELP") PaddingValues(0.dp) else innerPadding)) {
                 when (currentScreen) {
                     "HOME" -> DashboardScreen(
                         viewModel = viewModel,
@@ -119,7 +119,8 @@ fun DryTodoApp(viewModel: TaskViewModel) {
                         onAddSuggestion = { title, desc, due, isRec, pattern ->
                             viewModel.addTaskWithNotification(context, title, desc, due, isRec, pattern)
                         },
-                        onSeeAllClick = { currentScreen = "TASKS" }
+                        onSeeAllClick = { currentScreen = "TASKS" },
+                        onHelpClick = { currentScreen = "HELP" }
                     )
                     "TASKS" -> TasksScreen(
                         viewModel = viewModel,
@@ -148,6 +149,9 @@ fun DryTodoApp(viewModel: TaskViewModel) {
                     )
                     "STATS" -> StatsScreen(
                         viewModel = viewModel,
+                        onBack = { currentScreen = "HOME" }
+                    )
+                    "HELP" -> HelpScreen(
                         onBack = { currentScreen = "HOME" }
                     )
                     else -> {
@@ -387,13 +391,7 @@ fun TaskEditDialog(
         AlertDialog(
             onDismissRequest = { showTimePicker = false },
             confirmButton = {
-                TextButton(onClick = { 
-                    val cal = Calendar.getInstance().apply { timeInMillis = dueDate }
-                    cal.set(Calendar.HOUR_OF_DAY, timePickerState.hour)
-                    cal.set(Calendar.MINUTE, timePickerState.minute)
-                    dueDate = cal.timeInMillis
-                    showTimePicker = false 
-                }) { Text("OK") }
+                TextButton(onClick = { showTimePicker = false }) { Text("OK") }
             },
             text = { TimePicker(state = timePickerState) }
         )

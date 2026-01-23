@@ -1,12 +1,15 @@
 package com.example.todo.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,7 +20,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.todo.data.Task
+import com.example.todo.data.TaskLog
 import com.example.todo.ui.theme.*
+import com.example.todo.util.DateUtils
+import java.text.SimpleDateFormat
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -27,22 +33,52 @@ fun StatsScreen(
     onBack: () -> Unit
 ) {
     val tasks by viewModel.allTasks.collectAsState()
+    val logs by viewModel.allLogs.collectAsState()
 
-    val totalTasks = tasks.size
-    val completedTasks = tasks.count { it.isCompleted }
-    val pendingTasks = totalTasks - completedTasks
-    val completionRate = if (totalTasks > 0) (completedTasks.toFloat() / totalTasks * 100).toInt() else 0
+    var selectedInterval by remember { mutableStateOf("Sempre") }
+    val intervals = listOf("Hoje", "Últimos 7 dias", "Este Mês", "Sempre")
+    var showIntervalPicker by remember { mutableStateOf(false) }
 
-    val urgentTasks = tasks.count { it.priority == "URGENTE" && !it.isCompleted }
-    val highPriorityTasks = tasks.count { it.priority == "ALTA" && !it.isCompleted }
+    val filteredLogs = remember(logs, selectedInterval) {
+        val now = System.currentTimeMillis()
+        val startOfToday = DateUtils.startOfDay()
+        
+        when (selectedInterval) {
+            "Hoje" -> logs.filter { it.date >= startOfToday }
+            "Últimos 7 dias" -> {
+                val sevenDaysAgo = startOfToday - (7 * 24 * 60 * 60 * 1000L)
+                logs.filter { it.date >= sevenDaysAgo }
+            }
+            "Este Mês" -> {
+                val cal = Calendar.getInstance()
+                cal.set(Calendar.DAY_OF_MONTH, 1)
+                cal.set(Calendar.HOUR_OF_DAY, 0)
+                cal.set(Calendar.MINUTE, 0)
+                val startOfMonth = cal.timeInMillis
+                logs.filter { it.date >= startOfMonth }
+            }
+            else -> logs
+        }
+    }
+
+    val totalLogged = filteredLogs.size
+    val completedLogged = filteredLogs.count { it.wasCompleted }
+    val averageCompletion = if (totalLogged > 0) filteredLogs.sumOf { it.completionPercentage } / totalLogged else 0
+    val successRate = if (totalLogged > 0) (completedLogged.toFloat() / totalLogged * 100).toInt() else 0
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Estatísticas", fontWeight = FontWeight.Bold, color = PurpleDark) },
+                title = { Text("Performance e Histórico", fontWeight = FontWeight.Bold, color = PurpleDark) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar", tint = PurpleDark)
+                    }
+                },
+                actions = {
+                    TextButton(onClick = { showIntervalPicker = true }) {
+                        Text(selectedInterval, color = Primary, fontWeight = FontWeight.Bold)
+                        Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Primary)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
@@ -59,30 +95,55 @@ fun StatsScreen(
         ) {
             item {
                 Spacer(modifier = Modifier.height(8.dp))
-                SummaryCard(totalTasks, completedTasks, completionRate)
+                PerformanceCard(successRate, averageCompletion, totalLogged, completedLogged)
             }
 
-            item {
-                Text("Prioridades Pendentes", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = PurpleDark)
-                Spacer(modifier = Modifier.height(12.dp))
-                PriorityStatsRow(urgentTasks, highPriorityTasks)
-            }
-
-            item {
-                Text("Produtividade por Categoria", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = PurpleDark)
-                Spacer(modifier = Modifier.height(12.dp))
-                CategoryBreakdown(tasks)
+            if (filteredLogs.isNotEmpty()) {
+                item {
+                    Text("Histórico de Actividades", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = PurpleDark)
+                }
+                
+                items(filteredLogs) { log ->
+                    LogStatItem(log)
+                }
+            } else {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
+                        Text("Sem dados para este período", color = Color.Gray)
+                    }
+                }
             }
             
             item {
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
+
+        if (showIntervalPicker) {
+            AlertDialog(
+                onDismissRequest = { showIntervalPicker = false },
+                title = { Text("Selecionar Período") },
+                text = {
+                    Column {
+                        intervals.forEach { interval ->
+                            ListItem(
+                                headlineContent = { Text(interval) },
+                                modifier = Modifier.clickable {
+                                    selectedInterval = interval
+                                    showIntervalPicker = false
+                                }
+                            )
+                        }
+                    }
+                },
+                confirmButton = {}
+            )
+        }
     }
 }
 
 @Composable
-fun SummaryCard(total: Int, completed: Int, rate: Int) {
+fun PerformanceCard(successRate: Int, avgProgress: Int, total: Int, completed: Int) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
@@ -96,101 +157,78 @@ fun SummaryCard(total: Int, completed: Int, rate: Int) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text("Taxa de Conclusão", color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp)
-                    Text("$rate%", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
+                    Text("Taxa de Sucesso (100%)", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
+                    Text("$successRate%", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
                 }
-                CircularProgressIndicator(
-                    progress = { rate / 100f },
-                    modifier = Modifier.size(60.dp),
-                    color = Color.White,
-                    strokeWidth = 6.dp,
-                    trackColor = Color.White.copy(alpha = 0.2f)
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(
+                        progress = { avgProgress / 100f },
+                        modifier = Modifier.size(70.dp),
+                        color = Color.White,
+                        strokeWidth = 8.dp,
+                        trackColor = Color.White.copy(alpha = 0.2f)
+                    )
+                    Text("${avgProgress}%", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
             }
+            
+            Text("Progresso Médio", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
             
             Spacer(modifier = Modifier.height(24.dp))
             
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                StatItem("Total", total.toString())
-                StatItem("Concluídas", completed.toString())
-                StatItem("Pendentes", (total - completed).toString())
+                StatItemSmall("Instâncias", total.toString())
+                StatItemSmall("Concluídas", completed.toString())
+                StatItemSmall("Incompletas", (total - completed).toString())
             }
         }
     }
 }
 
 @Composable
-fun StatItem(label: String, value: String) {
+fun StatItemSmall(label: String, value: String) {
     Column {
-        Text(label, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
-        Text(value, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(label, color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp)
+        Text(value, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
     }
 }
 
 @Composable
-fun PriorityStatsRow(urgent: Int, high: Int) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        StatCard(
-            modifier = Modifier.weight(1f),
-            label = "Urgentes",
-            value = urgent.toString(),
-            color = PriorityUrgent
-        )
-        StatCard(
-            modifier = Modifier.weight(1f),
-            label = "Alta",
-            value = high.toString(),
-            color = PriorityHigh
-        )
-    }
-}
-
-@Composable
-fun StatCard(modifier: Modifier, label: String, value: String, color: Color) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.1f))
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(label, color = color, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Text(value, color = PurpleDark, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
-@Composable
-fun CategoryBreakdown(tasks: List<Task>) {
-    val categories = tasks.groupBy { it.category }
-    
+fun LogStatItem(log: TaskLog) {
+    val sdf = SimpleDateFormat("dd MMM, HH:mm", Locale("pt", "MZ"))
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White)
     ) {
-        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            if (tasks.isEmpty()) {
-                Text("Sem dados disponíveis", color = Color.Gray, fontSize = 14.sp)
-            } else {
-                categories.forEach { (category, catTasks) ->
-                    val catTotal = catTasks.size
-                    val catCompleted = catTasks.count { it.isCompleted }
-                    val catRate = (catCompleted.toFloat() / catTotal)
-                    
-                    Column {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(category, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = PurpleDark)
-                            Text("$catCompleted/$catTotal", fontSize = 12.sp, color = Color.Gray)
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        LinearProgressIndicator(
-                            progress = { catRate },
-                            modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
-                            color = Primary,
-                            trackColor = Primary.copy(alpha = 0.1f)
-                        )
-                    }
-                }
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background((if (log.wasCompleted) PriorityLow else PriorityUrgent).copy(alpha = 0.1f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (log.wasCompleted) Icons.Default.CheckCircle else Icons.Default.Close,
+                    contentDescription = null,
+                    tint = if (log.wasCompleted) PriorityLow else PriorityUrgent
+                )
+            }
+            
+            Spacer(modifier = Modifier.width(16.dp))
+            
+            Column(modifier = Modifier.weight(1f)) {
+                Text(log.taskTitle, fontWeight = FontWeight.Bold, color = PurpleDark, fontSize = 15.sp)
+                Text(sdf.format(Date(log.date)), fontSize = 12.sp, color = Color.Gray)
+            }
+            
+            Column(horizontalAlignment = Alignment.End) {
+                Text("${log.completionPercentage}%", fontWeight = FontWeight.Bold, color = if (log.wasCompleted) Primary else Color.Gray)
+                Text(if (log.wasCompleted) "Concluída" else "Pendente", fontSize = 10.sp, color = Color.Gray)
             }
         }
     }

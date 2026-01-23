@@ -15,5 +15,17 @@ data class Task(
     val recurrencePattern: String? = null, // e.g., "DAILY", "WEEKLY", "MENSAL"
     val lastCompletedDate: Long? = null,
     val priority: String = "NORMAL", // LOW, NORMAL, HIGH, URGENT
-    val category: String = "Pessoal" // Pessoal, Trabalho, Saúde, etc.
+    val category: String = "Pessoal",
+    val completionPercentage: Int = 0
+)
+
+@Entity(tableName = "task_logs")
+data class TaskLog(
+    @PrimaryKey(autoGenerate = true)
+    val logId: Int = 0,
+    val taskId: Int,
+    val taskTitle: String,
+    val date: Long,
+    val completionPercentage: Int,
+    val wasCompleted: Boolean
 )

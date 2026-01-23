@@ -2,6 +2,7 @@ package com.example.todo.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,14 +17,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.todo.data.Task
 import com.example.todo.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,13 +36,14 @@ fun TasksScreen(
     viewModel: TaskViewModel,
     onTaskClick: (Task) -> Unit,
     onFocusTask: (Task) -> Unit,
-    onToggleTask: (Task) -> Unit,
+    onToggleTask: (Task) -> Unit, 
     onDeleteTask: (Task) -> Unit,
     onBack: () -> Unit,
     onNavigateToAgenda: () -> Unit,
     onNavigateToStats: () -> Unit
 ) {
     val tasks by viewModel.allTasks.collectAsState()
+    val context = LocalContext.current
     
     val activeTasks = tasks.filter { !it.isCompleted }
     val completedTasks = tasks.filter { it.isCompleted }
@@ -88,7 +94,12 @@ fun TasksScreen(
             if (activeTasks.isNotEmpty()) {
                 items(activeTasks, key = { it.id }) { task ->
                     SwipeToDeleteContainer(onDelete = { onDeleteTask(task) }) {
-                        GoogleTaskItem(task, onTaskClick, onFocusTask, onToggleTask)
+                        InteractiveTaskItem(
+                            task = task,
+                            onClick = { onTaskClick(task) },
+                            onFocus = { onFocusTask(task) },
+                            onPercentageChange = { viewModel.updateTaskPercentage(task, it, context) }
+                        )
                     }
                 }
             }
@@ -105,7 +116,12 @@ fun TasksScreen(
                 }
                 items(completedTasks, key = { it.id }) { task ->
                     SwipeToDeleteContainer(onDelete = { onDeleteTask(task) }) {
-                        GoogleTaskItem(task, onTaskClick, onFocusTask, onToggleTask)
+                        InteractiveTaskItem(
+                            task = task,
+                            onClick = { onTaskClick(task) },
+                            onFocus = { onFocusTask(task) },
+                            onPercentageChange = { viewModel.updateTaskPercentage(task, it, context) }
+                        )
                     }
                 }
             }
@@ -122,11 +138,11 @@ fun TasksScreen(
 }
 
 @Composable
-fun GoogleTaskItem(
+fun InteractiveTaskItem(
     task: Task,
-    onClick: (Task) -> Unit,
-    onFocus: (Task) -> Unit,
-    onToggle: (Task) -> Unit
+    onClick: () -> Unit,
+    onFocus: () -> Unit,
+    onPercentageChange: (Int) -> Unit
 ) {
     val urgencyColor = when(task.priority) {
         "URGENTE" -> PriorityUrgent
@@ -139,21 +155,15 @@ fun GoogleTaskItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { onClick(task) }
+                .clickable { onClick() }
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(
-                onClick = { onToggle(task) },
-                modifier = Modifier.size(24.dp)
-            ) {
-                Icon(
-                    imageVector = if (task.isCompleted) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                    contentDescription = null,
-                    tint = if (task.isCompleted) Primary else urgencyColor,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
+            InteractiveCompletionButton(
+                percentage = task.completionPercentage,
+                onPercentageChange = onPercentageChange,
+                color = if (task.isCompleted) Primary else urgencyColor
+            )
 
             Spacer(modifier = Modifier.width(16.dp))
 
@@ -181,14 +191,68 @@ fun GoogleTaskItem(
                         Text(" • ", fontSize = 13.sp, color = Color.Gray)
                         Text(task.category, fontSize = 13.sp, color = Color.Gray)
                     }
+                    if (task.completionPercentage > 0 && !task.isCompleted) {
+                        Text(" • ${task.completionPercentage}%", fontSize = 13.sp, color = Primary, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
 
-            IconButton(onClick = { onFocus(task) }) {
+            IconButton(onClick = onFocus) {
                 Icon(Icons.Default.CenterFocusStrong, contentDescription = "Focar", tint = Color.LightGray, modifier = Modifier.size(20.dp))
             }
         }
         HorizontalDivider(modifier = Modifier.padding(start = 56.dp), thickness = 0.5.dp, color = Color.LightGray.copy(alpha = 0.5f))
+    }
+}
+
+@Composable
+fun InteractiveCompletionButton(
+    percentage: Int,
+    onPercentageChange: (Int) -> Unit,
+    color: Color
+) {
+    var dragX by remember { mutableFloatStateOf(0f) }
+    val width = 48.dp
+    val widthPx = 120f 
+
+    Box(
+        modifier = Modifier
+            .size(width)
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        val finalPercentage = ((dragX / widthPx).coerceIn(0f, 1f) * 100).roundToInt()
+                        onPercentageChange(finalPercentage)
+                        dragX = 0f 
+                    },
+                    onHorizontalDrag = { _, dragAmount ->
+                        dragX = (dragX + dragAmount).coerceIn(0f, widthPx)
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(color.copy(alpha = 0.1f))
+        )
+        
+        CircularProgressIndicator(
+            progress = { if (dragX > 0) (dragX / widthPx) else (percentage / 100f) },
+            modifier = Modifier.size(32.dp),
+            color = color,
+            strokeWidth = 3.dp,
+            trackColor = Color.Transparent
+        )
+
+        Icon(
+            imageVector = if (percentage == 100) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(24.dp)
+        )
     }
 }
 

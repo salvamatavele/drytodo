@@ -36,6 +36,7 @@ import com.example.todo.data.Task
 import com.example.todo.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.*
 import kotlin.math.floor
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,7 +45,7 @@ fun FocusModeScreen(
     initialTask: Task?,
     allTasks: List<Task>,
     onBack: () -> Unit,
-    onComplete: (Task) -> Unit
+    onComplete: (Task, Int) -> Unit
 ) {
     var currentTask by remember { mutableStateOf(initialTask) }
     var timeRemaining by remember { mutableLongStateOf(25 * 60 * 1000L) }
@@ -53,6 +54,9 @@ fun FocusModeScreen(
     var showTaskPicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
     var isFinished by remember { mutableStateOf(false) }
+    
+    // Track percentage locally for the interactive button
+    var completionPercentage by remember(currentTask) { mutableIntStateOf(currentTask?.completionPercentage ?: 0) }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -250,21 +254,35 @@ fun FocusModeScreen(
             Spacer(modifier = Modifier.weight(1f))
 
             if (currentTask != null) {
-                Button(
-                    onClick = {
-                        stopRingingAndVibrating(context)
-                        onComplete(currentTask!!)
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isFinished) PriorityUrgent else Color.White.copy(alpha = 0.2f),
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(24.dp),
-                    modifier = Modifier.fillMaxWidth().height(56.dp)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Default.Done, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Concluir Tarefa", fontWeight = FontWeight.Bold)
+                    Text(
+                        "Progresso da Tarefa: $completionPercentage%",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    
+                    // Large Interactive Completion Button for Focus Mode
+                    Box(modifier = Modifier.padding(bottom = 32.dp)) {
+                        InteractiveCompletionButton(
+                            percentage = completionPercentage,
+                            onPercentageChange = { newPercentage ->
+                                completionPercentage = newPercentage
+                                if (newPercentage == 100) {
+                                    stopRingingAndVibrating(context)
+                                    onComplete(currentTask!!, 100)
+                                } else {
+                                    // Update progress without closing
+                                    onComplete(currentTask!!, newPercentage)
+                                }
+                            },
+                            color = Color.White
+                        )
+                    }
                 }
             }
         }

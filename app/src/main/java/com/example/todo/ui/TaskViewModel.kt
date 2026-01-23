@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.todo.data.Task
+import com.example.todo.data.TaskLog
 import com.example.todo.data.TaskRepository
 import com.example.todo.data.TodoDatabase
 import com.example.todo.util.NotificationUtils
@@ -16,11 +17,14 @@ import java.util.Calendar
 class TaskViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: TaskRepository
     val allTasks: StateFlow<List<Task>>
+    val allLogs: StateFlow<List<TaskLog>>
 
     init {
         val taskDao = TodoDatabase.getDatabase(application).taskDao()
         repository = TaskRepository(taskDao)
         allTasks = repository.allTasks
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        allLogs = repository.allLogs
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
         
         autoRescheduleOverdue(application)
@@ -32,15 +36,26 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 val now = System.currentTimeMillis()
                 val eightHoursInMs = 8 * 60 * 60 * 1000L
                 
-                // Intelligent Auto-Reschedule:
-                // Only move recurring tasks if they are overdue by more than 8 hours
-                val overdueRecurring = tasks.filter { 
-                    it.isRecurring && !it.isCompleted && (now > it.dueDate + eightHoursInMs) 
-                }
+                // Only reschedule if at least 8 hours have passed since the due date
+                val overdue = tasks.filter { it.dueDate + eightHoursInMs < now && !it.isCompleted }
                 
-                if (overdueRecurring.isNotEmpty()) {
-                    overdueRecurring.forEach { task ->
-                        val nextDueDate = calculateNextAutoDueDate(task)
+                if (overdue.isNotEmpty()) {
+                    overdue.forEach { task ->
+                        // Log the non-completion in history
+                        repository.insertLog(TaskLog(
+                            taskId = task.id,
+                            taskTitle = task.title,
+                            date = task.dueDate,
+                            completionPercentage = task.completionPercentage,
+                            wasCompleted = false
+                        ))
+
+                        val nextDueDate = if (task.isRecurring) {
+                            calculateNextAutoDueDate(task)
+                        } else {
+                            calculateNextDay(task.dueDate)
+                        }
+                        
                         val updatedTask = task.copy(dueDate = nextDueDate)
                         repository.update(updatedTask)
                         
@@ -64,16 +79,24 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         when (task.recurrencePattern) {
             "SEMANAL" -> calendar.add(Calendar.WEEK_OF_YEAR, 1)
             "MENSAL" -> calendar.add(Calendar.MONTH, 1)
-            else -> calendar.add(Calendar.DAY_OF_YEAR, 1) // Default or DIÁRIO
+            else -> calendar.add(Calendar.DAY_OF_YEAR, 1)
         }
         
-        // If the calculated next date is still in the past, keep jumping forward
         while (calendar.timeInMillis < System.currentTimeMillis()) {
             when (task.recurrencePattern) {
                 "SEMANAL" -> calendar.add(Calendar.WEEK_OF_YEAR, 1)
                 "MENSAL" -> calendar.add(Calendar.MONTH, 1)
                 else -> calendar.add(Calendar.DAY_OF_YEAR, 1)
             }
+        }
+        return calendar.timeInMillis
+    }
+
+    private fun calculateNextDay(currentDate: Long): Long {
+        val calendar = Calendar.getInstance().apply { timeInMillis = currentDate }
+        calendar.add(Calendar.DAY_OF_YEAR, 1)
+        while (calendar.timeInMillis < System.currentTimeMillis()) {
+            calendar.add(Calendar.DAY_OF_YEAR, 1)
         }
         return calendar.timeInMillis
     }
@@ -96,7 +119,8 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 isRecurring = isRecurring,
                 recurrencePattern = recurrencePattern,
                 priority = priority,
-                category = category
+                category = category,
+                completionPercentage = 0
             )
             repository.insert(task)
             NotificationUtils.scheduleNotification(context, title.hashCode(), title, dueDate)
@@ -113,27 +137,48 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun toggleTaskCompletion(task: Task, context: android.content.Context) {
+    fun updateTaskPercentage(task: Task, percentage: Int, context: android.content.Context) {
         viewModelScope.launch {
-            if (!task.isCompleted) {
+            val isNewlyCompleted = percentage == 100
+            
+            if (isNewlyCompleted) {
+                // Log completion
+                repository.insertLog(TaskLog(
+                    taskId = task.id,
+                    taskTitle = task.title,
+                    date = System.currentTimeMillis(),
+                    completionPercentage = 100,
+                    wasCompleted = true
+                ))
+
                 if (task.isRecurring) {
                     val nextDueDate = calculateNextPatternDate(task.dueDate, task.recurrencePattern)
                     val updatedTask = task.copy(
                         dueDate = nextDueDate,
-                        lastCompletedDate = System.currentTimeMillis()
+                        lastCompletedDate = System.currentTimeMillis(),
+                        isCompleted = false,
+                        completionPercentage = 0 // Reset for next instance
                     )
                     repository.update(updatedTask)
                     NotificationUtils.cancelNotification(context, task.id)
                     NotificationUtils.scheduleNotification(context, task.id, task.title, nextDueDate)
                 } else {
-                    repository.update(task.copy(isCompleted = true))
+                    repository.update(task.copy(isCompleted = true, completionPercentage = 100))
                     NotificationUtils.cancelNotification(context, task.id)
                 }
             } else {
-                repository.update(task.copy(isCompleted = false))
-                NotificationUtils.scheduleNotification(context, task.id, task.title, task.dueDate)
+                repository.update(task.copy(isCompleted = false, completionPercentage = percentage))
+                // Reschedule notification if it was completed and now is not
+                if (task.isCompleted) {
+                    NotificationUtils.scheduleNotification(context, task.id, task.title, task.dueDate)
+                }
             }
         }
+    }
+
+    fun toggleTaskCompletion(task: Task, context: android.content.Context) {
+        val newPercentage = if (task.isCompleted) 0 else 100
+        updateTaskPercentage(task, newPercentage, context)
     }
 
     fun deleteTask(task: Task, context: android.content.Context) {
@@ -146,9 +191,27 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
     fun rescheduleOverdueTasks(context: android.content.Context) {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
+            val eightHoursInMs = 8 * 60 * 60 * 1000L
+            
+            // Manual trigger still respects the 8-hour rule or forces it? 
+            // Let's make manual trigger force it but keep the 8-hour rule for auto.
+            // Actually, usually manual means "do it now".
             val tasksToReschedule = allTasks.value.filter { it.dueDate < now && !it.isCompleted }
             tasksToReschedule.forEach { task ->
-                val nextDueDate = calculateNextAutoDueDate(task)
+                repository.insertLog(TaskLog(
+                    taskId = task.id,
+                    taskTitle = task.title,
+                    date = task.dueDate,
+                    completionPercentage = task.completionPercentage,
+                    wasCompleted = false
+                ))
+
+                val nextDueDate = if (task.isRecurring) {
+                    calculateNextAutoDueDate(task)
+                } else {
+                    calculateNextDay(task.dueDate)
+                }
+
                 val updatedTask = task.copy(dueDate = nextDueDate)
                 repository.update(updatedTask)
                 NotificationUtils.cancelNotification(context, task.id)

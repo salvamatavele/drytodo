@@ -17,6 +17,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -34,11 +35,13 @@ fun DashboardScreen(
     onFocusTask: (Task) -> Unit,
     onTaskComplete: (Task) -> Unit,
     onAddSuggestion: (String, String, Long, Boolean, String?) -> Unit,
-    onSeeAllClick: () -> Unit
+    onSeeAllClick: () -> Unit,
+    onHelpClick: () -> Unit
 ) {
     val tasks by viewModel.allTasks.collectAsState()
     val todayTasks = tasks.filter { DateUtils.isSameDay(it.dueDate, System.currentTimeMillis()) }
     val urgentTask = todayTasks.filter { !it.isCompleted }.find { it.priority == "URGENTE" } ?: todayTasks.filter { !it.isCompleted }.firstOrNull { it.priority == "ALTA" }
+    val context = LocalContext.current
     
     val progress = if (todayTasks.isNotEmpty()) {
         (todayTasks.count { it.isCompleted }.toFloat() / todayTasks.size.toFloat() * 100).toInt()
@@ -53,7 +56,7 @@ fun DashboardScreen(
     ) {
         item {
             Spacer(modifier = Modifier.height(16.dp))
-            DashboardHeader(progress)
+            DashboardHeader(progress, onHelpClick)
         }
 
         item {
@@ -73,7 +76,7 @@ fun DashboardScreen(
                 task = task,
                 onClick = { onTaskClick(task) },
                 onFocus = { onFocusTask(task) },
-                onComplete = { onTaskComplete(task) }
+                onPercentageChange = { viewModel.updateTaskPercentage(task, it, context) }
             )
         }
         
@@ -84,7 +87,7 @@ fun DashboardScreen(
 }
 
 @Composable
-fun DashboardHeader(progress: Int) {
+fun DashboardHeader(progress: Int, onHelpClick: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -105,20 +108,33 @@ fun DashboardHeader(progress: Int) {
             )
         }
         
-        Box(contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(
-                progress = { progress / 100f },
-                modifier = Modifier.size(50.dp),
-                color = Primary,
-                strokeWidth = 4.dp,
-                trackColor = Color(0xFFE0E0E0)
-            )
-            Text(
-                text = "$progress%",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = Primary
-            )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onHelpClick) {
+                Icon(
+                    imageVector = Icons.Default.HelpOutline,
+                    contentDescription = "Ajuda",
+                    tint = PurpleDark,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+            
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Box(contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(
+                    progress = { progress / 100f },
+                    modifier = Modifier.size(50.dp),
+                    color = Primary,
+                    strokeWidth = 4.dp,
+                    trackColor = Color(0xFFE0E0E0)
+                )
+                Text(
+                    text = "$progress%",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Primary
+                )
+            }
         }
     }
 }
@@ -269,7 +285,12 @@ fun TodayTasksHeader(onSeeAllClick: () -> Unit) {
 }
 
 @Composable
-fun DashboardTaskItem(task: Task, onClick: () -> Unit, onFocus: () -> Unit, onComplete: () -> Unit) {
+fun DashboardTaskItem(
+    task: Task, 
+    onClick: () -> Unit, 
+    onFocus: () -> Unit, 
+    onPercentageChange: (Int) -> Unit
+) {
     val urgencyColor = when(task.priority) {
         "URGENTE" -> PriorityUrgent
         "ALTA" -> PriorityHigh
@@ -288,19 +309,12 @@ fun DashboardTaskItem(task: Task, onClick: () -> Unit, onFocus: () -> Unit, onCo
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(24.dp)
-                    .clip(CircleShape)
-                    .background(if (task.isCompleted) urgencyColor else Color.Transparent)
-                    .then(if (!task.isCompleted) Modifier.background(urgencyColor.copy(alpha = 0.1f)) else Modifier)
-                    .clickable { onComplete() },
-                contentAlignment = Alignment.Center
-            ) {
-                if (task.isCompleted) {
-                    Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                }
-            }
+            InteractiveCompletionButton(
+                percentage = task.completionPercentage,
+                onPercentageChange = onPercentageChange,
+                color = if (task.isCompleted) Primary else urgencyColor
+            )
+            
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -309,7 +323,12 @@ fun DashboardTaskItem(task: Task, onClick: () -> Unit, onFocus: () -> Unit, onCo
                     textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null,
                     color = if (task.isCompleted) Color.Gray else PurpleDark
                 )
-                Text("${task.category} • ${SimpleDateFormat("HH:mm").format(Date(task.dueDate))}", color = Color.Gray, fontSize = 12.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("${task.category} • ${SimpleDateFormat("HH:mm").format(Date(task.dueDate))}", color = Color.Gray, fontSize = 12.sp)
+                    if (task.completionPercentage > 0 && !task.isCompleted) {
+                        Text(" • ${task.completionPercentage}%", fontSize = 12.sp, color = Primary, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
 
             IconButton(onClick = onFocus) {
