@@ -35,9 +35,17 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             allTasks.collect { tasks ->
                 val now = System.currentTimeMillis()
                 val eightHoursInMs = 8 * 60 * 60 * 1000L
-                
-                // Only reschedule if at least 8 hours have passed since the due date
-                val overdue = tasks.filter { it.dueDate + eightHoursInMs < now && !it.isCompleted }
+                val fourHoursInMs = 4 * 60 * 60 * 1000L
+
+                // Rule:
+                // 1. Recurring tasks reschedule after 4 hours.
+                // 2. Non-recurring tasks reschedule after 8 hours.
+                val overdue = tasks.filter { task ->
+                    if (task.isCompleted) return@filter false
+
+                    val delayThreshold = if (task.isRecurring) fourHoursInMs else eightHoursInMs
+                    now > (task.dueDate + delayThreshold)
+                }
                 
                 if (overdue.isNotEmpty()) {
                     overdue.forEach { task ->
@@ -79,7 +87,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         when (task.recurrencePattern) {
             "SEMANAL" -> calendar.add(Calendar.WEEK_OF_YEAR, 1)
             "MENSAL" -> calendar.add(Calendar.MONTH, 1)
-            else -> calendar.add(Calendar.DAY_OF_YEAR, 1)
+            else -> calendar.add(Calendar.DAY_OF_YEAR, 1) // Daily or Default
         }
         
         while (calendar.timeInMillis < System.currentTimeMillis()) {
@@ -191,11 +199,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
     fun rescheduleOverdueTasks(context: android.content.Context) {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
-            val eightHoursInMs = 8 * 60 * 60 * 1000L
-            
-            // Manual trigger still respects the 8-hour rule or forces it? 
-            // Let's make manual trigger force it but keep the 8-hour rule for auto.
-            // Actually, usually manual means "do it now".
             val tasksToReschedule = allTasks.value.filter { it.dueDate < now && !it.isCompleted }
             tasksToReschedule.forEach { task ->
                 repository.insertLog(TaskLog(
