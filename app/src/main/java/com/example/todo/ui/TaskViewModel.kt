@@ -36,20 +36,20 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 val now = System.currentTimeMillis()
                 val eightHoursInMs = 8 * 60 * 60 * 1000L
                 val fourHoursInMs = 4 * 60 * 60 * 1000L
-
-                // Rule:
-                // 1. Recurring tasks reschedule after 4 hours.
-                // 2. Non-recurring tasks reschedule after 8 hours.
-                val overdue = tasks.filter { task ->
+                
+                // CRITICAL FIX: Only reschedule if the GRACE PERIOD has passed.
+                // This prevents moving recurring tasks "in the same instant" they are due.
+                val tasksToMove = tasks.filter { task ->
                     if (task.isCompleted) return@filter false
-
-                    val delayThreshold = if (task.isRecurring) fourHoursInMs else eightHoursInMs
-                    now > (task.dueDate + delayThreshold)
+                    
+                    val threshold = if (task.isRecurring) fourHoursInMs else eightHoursInMs
+                    val expirationTime = task.dueDate + threshold
+                    
+                    now > expirationTime
                 }
                 
-                if (overdue.isNotEmpty()) {
-                    overdue.forEach { task ->
-                        // Log the non-completion in history
+                if (tasksToMove.isNotEmpty()) {
+                    tasksToMove.forEach { task ->
                         repository.insertLog(TaskLog(
                             taskId = task.id,
                             taskTitle = task.title,
@@ -64,8 +64,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                             calculateNextDay(task.dueDate)
                         }
                         
-                        val updatedTask = task.copy(dueDate = nextDueDate)
-                        repository.update(updatedTask)
+                        repository.update(task.copy(dueDate = nextDueDate, completionPercentage = task.completionPercentage))
                         
                         NotificationUtils.cancelNotification(context, task.id)
                         NotificationUtils.scheduleNotification(context, task.id, task.title, nextDueDate)
@@ -87,7 +86,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         when (task.recurrencePattern) {
             "SEMANAL" -> calendar.add(Calendar.WEEK_OF_YEAR, 1)
             "MENSAL" -> calendar.add(Calendar.MONTH, 1)
-            else -> calendar.add(Calendar.DAY_OF_YEAR, 1) // Daily or Default
+            else -> calendar.add(Calendar.DAY_OF_YEAR, 1)
         }
         
         while (calendar.timeInMillis < System.currentTimeMillis()) {
@@ -150,7 +149,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             val isNewlyCompleted = percentage == 100
             
             if (isNewlyCompleted) {
-                // Log completion
                 repository.insertLog(TaskLog(
                     taskId = task.id,
                     taskTitle = task.title,
@@ -165,7 +163,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                         dueDate = nextDueDate,
                         lastCompletedDate = System.currentTimeMillis(),
                         isCompleted = false,
-                        completionPercentage = 0 // Reset for next instance
+                        completionPercentage = 0 
                     )
                     repository.update(updatedTask)
                     NotificationUtils.cancelNotification(context, task.id)
@@ -176,7 +174,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } else {
                 repository.update(task.copy(isCompleted = false, completionPercentage = percentage))
-                // Reschedule notification if it was completed and now is not
                 if (task.isCompleted) {
                     NotificationUtils.scheduleNotification(context, task.id, task.title, task.dueDate)
                 }
@@ -215,8 +212,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                     calculateNextDay(task.dueDate)
                 }
 
-                val updatedTask = task.copy(dueDate = nextDueDate)
-                repository.update(updatedTask)
+                repository.update(task.copy(dueDate = nextDueDate))
                 NotificationUtils.cancelNotification(context, task.id)
                 NotificationUtils.scheduleNotification(context, task.id, task.title, nextDueDate)
             }
